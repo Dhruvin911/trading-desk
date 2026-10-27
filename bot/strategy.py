@@ -21,6 +21,18 @@ Setups (long only - the Robinhood account can't short):
        new high of day recently, pullback touches the rising 5m 9 EMA on lighter
        volume and closes above it; buy-stop above that bar.
 
+  SATY Saty ATR Levels + Pivot Ribbon (from the Saty indicator code; rules provisional
+       until checked against the videos):
+       levels = prior daily close +/- fib x daily ATR(14): 23.6% call/put trigger,
+       38.2% / 50% / 61.8% ("golden gate") / 78.6% / 100% / 123.6% / 161.8% targets.
+       Ribbon = 8/21/34 EMA on 5m closes; bullish when close >= 8 >= 21 >= 34;
+       conviction = 13 EMA above 48 EMA. Entry variants (Params.saty_entries):
+         trigger   first 5m close above the call trigger
+         gate      first 5m close above the 38.2% level (golden gate opens; aims at 61.8%)
+         pullback  above the call trigger, a bar dips to the 21 EMA and closes above it
+       Buy-stop above that bar, stop under the bar low / level, first target = the
+       nearest ATR level at least saty_min_r R above the entry.
+
 Exits (guide sections 4 and 15):
   - hard stop
   - first target at +t1_r R: sell half, stop to break-even ("never let a green trade go red")
@@ -69,6 +81,13 @@ class Params:
     flatten: time = time(15, 55)
     max_trades_per_symbol: int = 2
     slippage_pct: float = 0.0003       # per fill
+    # Saty ATR Levels + Pivot Ribbon
+    saty_entries: tuple = ("trigger", "gate", "pullback")
+    saty_conviction: bool = True       # 13 EMA above 48 EMA on 5m
+    saty_min_r: float = 1.0            # first target = nearest ATR level >= this many R away
+    saty_stop_atr: float = 0.1         # stop buffer under the bar low / level, in 5m ATRs
+    saty_runner_ema: int = 21          # runner exits on a 5m close below this ribbon EMA
+    saty_rs: bool = False              # also require beating SPY since the open
 
 
 @dataclass
@@ -81,6 +100,7 @@ class DayContext:
     pwl: Optional[float] = None
     pmh: Optional[float] = None
     pml: Optional[float] = None
+    daily_atr: Optional[float] = None   # Wilder ATR(14) of daily bars through the prior session
     daily_ema9: Optional[float] = None
     daily_ema50: Optional[float] = None
     daily_ema200: Optional[float] = None
@@ -110,6 +130,7 @@ class ArmedEntry:
     stop: float
     expires_after: int      # 5m bar index after which it lapses
     armed_at: object
+    target: Optional[float] = None   # fixed first target (SATY); otherwise t1_r R
 
 
 @dataclass
@@ -173,6 +194,7 @@ class SymbolStrategy:
     def __init__(self, symbol, params: Params):
         self.symbol, self.p = symbol, params
         self.ema9 = EMA(9)
+        self.ribbon = {n: EMA(n) for n in (8, 13, 21, 34, 48)}
         self.atr = ATR(14)
         self.ctx = DayContext()
 
@@ -200,7 +222,8 @@ class SymbolStrategy:
                 continue
             self.levels[name] = {"level": value, "state": "new", "break_idx": None,
                                  "break_vol": None, "done": False}
-
+        self.saty = saty_levels(ctx.pdc, ctx.daily_atr)
+        self.saty_used = set()     # entry variants already taken today
     # -- 5m close -----------------------------------------------------------
     def on_5m_close(self, bar: Bar, slot: str, close_time: time, spy_change: Optional[float], market=None):
         """Call once per completed 5m regular-session bar.
@@ -220,6 +243,7 @@ class SymbolStrategy:
         self.cum_v += bar.v
         self.vwap = self.cum_pv / self.cum_v if self.cum_v else bar.c
         ema = self.ema9.update(bar.c)
+        rib = {n: e.update(bar.c) for n, e in self.ribbon.items()}
         atr = self.atr.update(bar)
         self.ema_hist.append(ema)
         self.vol_hist.append(bar.v)
@@ -234,10 +258,14 @@ class SymbolStrategy:
         if pos is not None:
             if p.level_exit and not pos.trimmed and pos.setup == "BRH" and bar.c < pos.level * (1 - 0.001):
                 actions.append(("exit", "closed back below level"))
-            elif p.runner_exit_ema and pos.trimmed and bar.c < ema:
+            elif p.runner_exit_ema and pos.trimmed and pos.setup != "SATY" and bar.c < ema:
                 actions.append(("exit", "5m close below 9 EMA"))
             elif pos.setup == "EMA" and not pos.trimmed and bar.c < ema - 0.1 * atr:
                 actions.append(("exit", "lost the 9 EMA"))
+            elif pos.setup == "SATY" and not pos.trimmed and (bar.c < rib[34] or bar.c < pos.level * (1 - 0.001)):
+                actions.append(("exit", "lost the ribbon / level"))
+            elif pos.setup == "SATY" and pos.trimmed and bar.c < rib[p.saty_runner_ema]:
+                actions.append(("exit", f"5m close below {p.saty_runner_ema} EMA"))
 
         # An armed entry that wasn't triggered lapses, or is cancelled by a close below the level
         if self.armed is not None:
@@ -294,7 +322,58 @@ class SymbolStrategy:
             armed = self._ema_pullback(bar, close_time, ema, atr, spy_change)
             if armed:
                 actions.append(("arm", armed))
+        if "SATY" in p.setups and self.armed is None and self.position is None and self.saty:
+            armed = self._saty(bar, close_time, rib, atr, spy_change)
+            if armed:
+                actions.append(("arm", armed))
+        self.prev_close = bar.c
         return actions
+
+    def _saty(self, bar, local_time, rib, atr, spy_change):
+        p, lv = self.p, self.saty
+        if not (p.entry_start <= local_time < p.last_entry) or self.trades_today >= p.max_trades_per_symbol:
+            return None
+        if not (bar.c >= rib[8] >= rib[21] >= rib[34]):
+            return None
+        if p.saty_conviction and rib[13] <= rib[48]:
+            return None
+        ctx = self.ctx
+        if p.require_daily_trend and (ctx.daily_ema9 is None or ctx.pdc is None or ctx.pdc <= ctx.daily_ema9):
+            return None
+        if p.require_market in ("vwap", "both") and not self.market.get("above_vwap"):
+            return None
+        if p.require_market in ("ema", "both") and not self.market.get("above_ema9"):
+            return None
+        if p.saty_rs and (spy_change is None or bar.c / self.day_open - 1 <= spy_change):
+            return None
+        prev = getattr(self, "prev_close", None)
+        prev = bar.o if prev is None or self.idx == 0 else prev
+        trigger, mid = lv[0.236], lv[0.382]
+        for variant in p.saty_entries:
+            if variant in self.saty_used:
+                continue
+            if variant == "trigger" and prev <= trigger < bar.c and bar.c < mid:
+                level, stop_base = trigger, min(bar.l, trigger)
+            elif variant == "gate" and prev <= mid < bar.c and bar.c < lv[0.618]:
+                level, stop_base = mid, min(bar.l, mid)
+            elif (variant == "pullback" and bar.c > trigger and bar.l <= rib[21] + 0.1 * atr
+                  and bar.c > rib[21] and bar.l > rib[34]):
+                level, stop_base = trigger, min(bar.l, rib[34])
+            else:
+                continue
+            entry = round(bar.h + 0.01, 2)
+            stop = round(stop_base - max(0.01, p.saty_stop_atr * atr), 2)
+            risk = entry - stop
+            if risk <= 0 or risk > p.max_risk_atr * atr or risk < p.min_risk_pct * entry:
+                continue
+            target = next((v for k, v in sorted(lv.items()) if k > 0 and v >= entry + p.saty_min_r * risk), None)
+            if target is None:
+                continue
+            self.saty_used.add(variant)
+            self.armed = ArmedEntry(self.symbol, "SATY", variant, level, entry, stop,
+                                    expires_after=self.idx + p.arm_bars, armed_at=bar.ts, target=target)
+            return self.armed
+        return None
 
     def _ema_pullback(self, bar, local_time, ema, atr, spy_change):
         if local_time < time(10, 0) or len(self.ema_hist) < 4 or len(self.vol_hist) < 4:
@@ -349,8 +428,9 @@ class SymbolStrategy:
     def entry_filled(self, price, ts):
         a = self.armed
         risk = price - a.stop
+        t1 = a.target if a.target is not None and a.target > price else price + self.p.t1_r * risk
         self.position = Position(a.symbol, a.setup, a.level_name, a.level, price, a.stop, risk,
-                                 t1=price + self.p.t1_r * risk, opened_at=ts,
+                                 t1=t1, opened_at=ts,
                                  fills=[(ts, "buy", round(price, 4), 1.0, a.setup)])
         self.armed = None
         self.trades_today += 1
@@ -361,6 +441,19 @@ class SymbolStrategy:
     def position_closed(self):
         pos, self.position = self.position, None
         return pos
+
+
+SATY_FIBS = (0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618)
+
+
+def saty_levels(close, atr):
+    """Saty ATR Levels, Day mode: {fib: price}, negative keys below the close."""
+    if close is None or not atr:
+        return {}
+    out = {0.0: close}
+    for f in SATY_FIBS:
+        out[f], out[-f] = close + f * atr, close - f * atr
+    return out
 
 
 def is_leader(ctx: DayContext):

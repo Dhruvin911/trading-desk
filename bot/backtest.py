@@ -76,6 +76,7 @@ class SymbolData:
                 e50.update(row[4])
                 e200.update(row[4])
             ctx.daily_ema9, ctx.daily_ema50 = e9.value, e50.value
+            ctx.daily_atr = wilder_atr(prior)
             ctx.daily_ema200 = e200.value if len(prior) >= 200 else None
             ctx.high60 = max(r[2] for r in prior[-60:])
             if len(prior) > 20:
@@ -94,6 +95,18 @@ class SymbolData:
                 slots[t.strftime("%H:%M")].append(b.v)
         ctx.slot_volume = {k: sum(v) / len(v) for k, v in slots.items() if len(v) >= 5}
         return ctx
+
+
+def wilder_atr(rows, period=14):
+    """ATR as TradingView's ta.atr: RMA of true range, seeded with the first `period` TRs' mean."""
+    trs = [rows[0][2] - rows[0][3]] + [max(h - l, abs(h - pc), abs(l - pc))
+                                       for (_, _, h, l, _), (_, _, _, _, pc) in zip(rows[1:], rows)]
+    if len(trs) < period:
+        return None
+    atr = sum(trs[:period]) / period
+    for tr in trs[period:]:
+        atr += (tr - atr) / period
+    return atr
 
 
 # ---- simulation ----------------------------------------------------------------
