@@ -54,6 +54,22 @@ Setups (long only - the Robinhood account can't short):
        Bear flag (long-only account): a bear flag breaking down closes an open long and
        blocks new longs for the rest of that flag's move.
 
+  SATYD Saty's day-trade checklist, from his videos "ATR Levels Overview", "Pivot Ribbon
+       Tutorial" and "Day Trading with ATR Levels and Ripster EMA Clouds". Trend and
+       entries on 10-minute bars built from the 5m bars (he uses the 10m for trend, and
+       enters on it unless price moves fast):
+       essential  - trend: 10m close above the 34/50 EMA cloud (Ripster's golden rule)
+                  - a 10m close above the call trigger (+23.6% ATR)
+                  - less than 70% of the daily ATR covered (today's high - low)
+       ideal      - "super bullish": close > 5 > 8 > 12 > 21 > 34 > 50 EMA (sd_stacked)
+       rules      - no trades in the first 10 minutes; never chase: wait for a pullback
+                    to the 8/9 EMA (or the 21, the pivot) and enter as it bounces
+                    (buy-stop above the pullback bar)
+       stop       - under the 34/50 cloud, the call trigger, or the pullback bar (sd_stop)
+       targets    - scale out at the mid-range (61.8% ATR), runners to the full ATR;
+                    runners exit on a 10m close below the sd_runner EMA (21 or the 5/12
+                    cloud); a 10m close below the 34/50 cloud before T1 ends the trade
+
 Exits (guide sections 4 and 15):
   - hard stop
   - first target at +t1_r R: sell half, stop to break-even ("never let a green trade go red")
@@ -101,6 +117,18 @@ class Params:
     last_entry: time = time(15, 0)
     flatten: time = time(15, 55)
     max_trades_per_symbol: int = 2
+    # SATYD: Saty day-trade checklist on 10m bars
+    sd_max_range: float = 0.7          # max share of the daily ATR covered at entry
+    sd_stacked: bool = False           # require close > 5 > 8 > 12 > 21 > 34 > 50
+    sd_above_512: bool = False         # also above the 5/12 cloud ("extra bullish")
+    sd_pullback_ema: int = 9           # pullback must touch this 10m EMA (8, 9 or 21)
+    sd_touch_atr: float = 0.15         # "touch" = low within this many 10m ATRs above the EMA
+    sd_stop: str = "cloud"             # "cloud" (under 34/50), "trigger", "bar"
+    sd_stop_atr: float = 0.1           # buffer under the stop reference, in 10m ATRs
+    sd_t1: float = 0.618               # mid-range target, share of ATR
+    sd_t2: Optional[float] = 1.0       # full-range target (None: runner only)
+    sd_runner: int = 21                # runner exit EMA on 10m closes (12 = 5/12 cloud)
+    sd_min_room_r: float = 0.5         # T1 at least this many R above the entry
     slippage_pct: float = 0.0003       # per fill
     # Inside the bar an entry fills on: "worst" assumes its low came after the fill;
     # "ohlc" assumes open-low-high-close for a green bar (the low came first) and
@@ -233,6 +261,8 @@ class SymbolStrategy:
         self.ema9 = EMA(9)
         self.ribbon = {n: EMA(n) for n in (8, 13, 21, 34, 48)}
         self.htf_ribbon = {n: EMA(n) for n in (8, 21, 34)}
+        self.e10 = {n: EMA(n) for n in (5, 8, 9, 12, 21, 34, 50)}
+        self.atr10 = ATR(14)
         self.prev_bull = False
         self.atr = ATR(14)
         self.ctx = DayContext()
@@ -267,6 +297,9 @@ class SymbolStrategy:
         self.lod = None
         self.gate_open = False
         self.bear_block = None     # broken bear flag's high: no longs until a close above it
+        self.b10 = None            # 10m bar being built
+        self.sd_triggered = False  # a 10m close above the call trigger happened today
+        self.lod = None
     # -- 5m close -----------------------------------------------------------
     def on_5m_close(self, bar: Bar, slot: str, close_time: time, spy_change: Optional[float], market=None):
         """Call once per completed 5m regular-session bar.
@@ -309,7 +342,7 @@ class SymbolStrategy:
         if pos is not None:
             if p.level_exit and not pos.trimmed and pos.setup == "BRH" and bar.c < pos.level * (1 - 0.001):
                 actions.append(("exit", "closed back below level"))
-            elif p.runner_exit_ema and pos.trimmed and pos.setup != "SATY" and bar.c < ema:
+            elif p.runner_exit_ema and pos.trimmed and pos.setup in ("BRH", "EMA") and bar.c < ema:
                 actions.append(("exit", "5m close below 9 EMA"))
             elif pos.setup == "EMA" and not pos.trimmed and bar.c < ema - 0.1 * atr:
                 actions.append(("exit", "lost the 9 EMA"))
@@ -385,7 +418,59 @@ class SymbolStrategy:
             armed = self._saty(bar, close_time, rib, atr, spy_change)
             if armed:
                 actions.append(("arm", armed))
+        if "SATYD" in p.setups and self.saty:
+            actions += self._saty_day(bar, close_time)
         self.prev_close = bar.c
+        return actions
+
+    def _saty_day(self, bar, close_time):
+        """Build 10m bars from pairs of 5m bars from the open; act on each 10m close."""
+        p, lv = self.p, self.saty
+        if self.idx % 2 == 0:
+            self.b10 = Bar(bar.ts, bar.o, bar.h, bar.l, bar.c, bar.v)
+            return []
+        b = self.b10
+        b10 = Bar(b.ts, b.o, max(b.h, bar.h), min(b.l, bar.l), bar.c, b.v + bar.v)
+        e = {n: x.update(b10.c) for n, x in self.e10.items()}
+        atr10 = self.atr10.update(b10)
+        actions = []
+        cloud_lo = min(e[34], e[50])
+        pos = self.position
+        if pos is not None and pos.setup == "SATYD":
+            if not pos.trimmed and b10.c < cloud_lo:
+                actions.append(("exit", "10m close below the 34/50 cloud"))
+            elif pos.trimmed and b10.c < (min(e[5], e[12]) if p.sd_runner == 12 else e[p.sd_runner]):
+                actions.append(("exit", f"10m close below runner EMA {p.sd_runner}"))
+        trigger = lv[0.236]
+        if b10.c > trigger:
+            self.sd_triggered = True
+        if (self.armed is not None or self.position is not None or not self.sd_triggered
+                or not (p.entry_start <= close_time < p.last_entry) or self.trades_today >= p.max_trades_per_symbol):
+            return actions
+        # essentials
+        if b10.c <= max(e[34], e[50]) or b10.c <= trigger:
+            return actions
+        if (self.hod - self.lod) >= p.sd_max_range * self.ctx.daily_atr:
+            return actions
+        if p.sd_above_512 and b10.c <= max(e[5], e[12]):
+            return actions
+        if p.sd_stacked and not (b10.c > e[5] > e[8] > e[12] > e[21] > e[34] > e[50]):
+            return actions
+        # pullback to the 8/9 (or 21) EMA that holds
+        ref = e[p.sd_pullback_ema]
+        if not (b10.l <= ref + p.sd_touch_atr * atr10 and b10.c > ref and b10.c > e[21]):
+            return actions
+        entry = round(b10.h + 0.01, 2)
+        base = {"cloud": cloud_lo, "trigger": trigger, "bar": b10.l}[p.sd_stop]
+        stop = round(min(base, b10.l) - max(0.01, p.sd_stop_atr * atr10), 2)
+        risk = entry - stop
+        t1 = self.ctx.pdc + p.sd_t1 * self.ctx.daily_atr
+        t2 = self.ctx.pdc + p.sd_t2 * self.ctx.daily_atr if p.sd_t2 else None
+        if risk <= 0 or risk < p.min_risk_pct * entry or t1 - entry < p.sd_min_room_r * risk:
+            return actions
+        self.armed = ArmedEntry(self.symbol, "SATYD", "saty_day", trigger, entry, stop,
+                                expires_after=self.idx + 2, armed_at=bar.ts, target=t1, target2=t2)
+        actions.append(("arm", self.armed))
         return actions
 
     def _update_htf(self, bar):

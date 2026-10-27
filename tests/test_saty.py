@@ -69,6 +69,33 @@ class SatyTests(unittest.TestCase):
         self.assertEqual([e[0] for e in events], ["trim", "closed"])
         self.assertEqual(events[1][1].fills[-1][4], "second target")
 
+    def test_saty_day_arms_on_10m_pullback_above_trigger(self):
+        p = Params(setups=("SATYD",))
+        s = SymbolStrategy("X", p)
+        start = dt.datetime(2026, 3, 2, 9, 30, tzinfo=ET)
+        # Warm the 10m EMAs on a slow uptrend, then a new day opens above the call trigger.
+        price = 90.0
+        for day in range(3):
+            s.start_day(DayContext(pdc=price, daily_atr=40.0))
+            for i in range(78):
+                price += 0.02
+                t = start + dt.timedelta(days=day, minutes=5 * i)
+                s.on_5m_close(Bar(t, price - 0.01, price + 0.02, price - 0.02, price, 1000),
+                              t.strftime("%H:%M"), (t + dt.timedelta(minutes=5)).time(), 0.0)
+        s.start_day(DayContext(pdc=price - 10.0, daily_atr=40.0))   # trigger = pdc + 9.44
+        armed = []
+        for i in range(30):
+            price += 0.02
+            t = start + dt.timedelta(days=3, minutes=5 * i)
+            low = price - (0.5 if i == 21 else 0.02)                # i = 20/21: the pullback 10m bar
+            for kind, payload in s.on_5m_close(Bar(t, price - 0.01, price + 0.02, low, price, 1000),
+                                               t.strftime("%H:%M"), (t + dt.timedelta(minutes=5)).time(), 0.0):
+                if kind == "arm":
+                    armed.append(payload)
+        self.assertEqual(len(armed), 1)
+        self.assertEqual(armed[0].setup, "SATYD")
+        self.assertAlmostEqual(armed[0].target, price - 0.6 - 10.0 + 0.618 * 40.0, places=0)
+
 
 if __name__ == "__main__":
     unittest.main()
