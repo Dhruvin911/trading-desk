@@ -96,6 +96,16 @@ class SatyTests(unittest.TestCase):
         self.assertEqual(armed[0].setup, "SATYD")
         self.assertAlmostEqual(armed[0].target, price - 0.6 - 10.0 + 0.618 * 40.0, places=0)
 
+    def test_timewarp_bars(self):
+        from bot.timewarp import bars_by_period
+        t = dt.datetime(2026, 3, 2, 9, 30, tzinfo=ET)
+        rows = [(t + dt.timedelta(minutes=i), Bar(t, 100 + i, 101 + i, 99 + i, 100.5 + i, 10)) for i in range(7)]
+        three = bars_by_period(rows, 3)
+        self.assertEqual(len(three), 3)                     # 9:30, 9:33, 9:36 (partial)
+        t0, close_t, b = three[0]
+        self.assertEqual((t0.minute, close_t.minute), (30, 33))
+        self.assertEqual((b.o, b.h, b.l, b.c, b.v), (100, 103, 99, 102.5, 30))
+
 
 if __name__ == "__main__":
     unittest.main()
