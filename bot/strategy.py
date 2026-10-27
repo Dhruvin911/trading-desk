@@ -145,6 +145,11 @@ class Params:
     sg_exit_ema: int = 13              # exit on a 10m close below this EMA (13, or 21)
     sg_t1: float = 0.5                 # first scale-out level (share of ATR)
     sg_t2: Optional[float] = 0.618     # golden fib: the rest (None: hold until the exit EMA)
+    sg_entry: str = "pullback"         # "pullback" (into the 8-13 zone after the gate) or "touch"
+                                       # (buy-stop at the gate itself, stop under the call trigger)
+    sg_confirm: str = "stacked"        # touch entries: "stacked" ribbon, "bull" (close > 8 > 21 > 34),
+                                       # "above48" (close and 13 EMA above the 48), "none"
+    sg_fail_ema: Optional[int] = None  # before T1: exit on a 10m close below this EMA (e.g. 48)
     sg_exit_after_t1: bool = False     # the 10m-close exit only once T1 is taken (stop before that)
     sg_above_pdc: bool = True          # bias: above the previous close
     sg_max_range: Optional[float] = None
@@ -458,10 +463,15 @@ class SymbolStrategy:
         if (b10 is not None and pos is not None and pos.setup == "SATYG" and b10.c < e[p.sg_exit_ema]
                 and (pos.trimmed or not p.sg_exit_after_t1)):
             actions.append(("exit", f"10m close below the {p.sg_exit_ema} EMA"))
+        elif (b10 is not None and pos is not None and pos.setup == "SATYG" and not pos.trimmed
+              and p.sg_fail_ema and b10.c < e[p.sg_fail_ema]):
+            actions.append(("exit", f"ribbon failed: 10m close below the {p.sg_fail_ema} EMA"))
         if (self.armed is not None or pos is not None or self.trades_today >= p.max_trades_per_symbol
                 or not (p.entry_start <= close_time < p.last_entry)):
             return actions
         gate, t1, t2 = lv[0.382], lv[p.sg_t1], lv[p.sg_t2] if p.sg_t2 else None
+        if p.sg_entry == "touch":
+            return actions + self._gate_touch(bar, e, atr, gate, t1, t2)
         if self.hod < gate or bar.c <= lv[0.236] or bar.c >= t1:      # gate not opened yet / lost trigger / no room
             return actions
         if p.sg_above_pdc and bar.c <= self.ctx.pdc:
@@ -484,6 +494,33 @@ class SymbolStrategy:
                                 expires_after=self.idx + p.arm_bars, armed_at=bar.ts, target=t1, target2=t2)
         actions.append(("arm", self.armed))
         return actions
+
+    def _gate_touch(self, bar, e, atr, gate, t1, t2):
+        """Buy-stop at the golden gate before its first touch today, out of the trigger box,
+        with the 10m ribbon confirming; stop under the call trigger."""
+        p, lv = self.p, self.saty
+        trigger = lv[0.236]
+        if self.hod >= gate or not (trigger < bar.c < gate):
+            return []
+        if p.sg_above_pdc and bar.c <= self.ctx.pdc:
+            return []
+        c = p.sg_confirm
+        if c == "stacked" and not (e[8] > e[13] > e[21] > e[34] > e[48]):
+            return []
+        if c == "bull" and not (bar.c > e[8] > e[21] > e[34]):
+            return []
+        if c == "above48" and not (bar.c > e[48] and e[13] > e[48]):
+            return []
+        if p.sg_max_range is not None and (self.hod - self.lod) >= p.sg_max_range * self.ctx.daily_atr:
+            return []
+        entry = round(gate + 0.01, 2)
+        stop = round(trigger - max(0.01, p.saty_stop_atr * atr), 2)
+        risk = entry - stop
+        if risk <= 0 or risk < p.min_risk_pct * entry:
+            return []
+        self.armed = ArmedEntry(self.symbol, "SATYG", "gate_touch", gate, entry, stop,
+                                expires_after=self.idx + 1, armed_at=bar.ts, target=t1, target2=t2)
+        return [("arm", self.armed)]
 
     def _update_10m(self, bar):
         """Build 10m bars from pairs of 5m bars from the open. Returns the 10m bar that

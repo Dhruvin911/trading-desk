@@ -283,7 +283,9 @@ def make_params(setups, overrides):
     for item in overrides:
         key, value = item.split("=", 1)
         current = getattr(params, key)
-        if isinstance(current, bool):
+        if value.lower() == "none":
+            value = None
+        elif isinstance(current, bool):
             value = value.lower() in ("1", "true", "yes")
         elif isinstance(current, tuple):
             value = tuple(value.split(","))

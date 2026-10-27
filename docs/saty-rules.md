@@ -151,6 +151,12 @@ transcripts arrived, from the indicator code alone.
 | SATYD + SATYG together | | +0.05R (120) | |
 | SATYG with Time Warp: 3m entries, 10m ribbon incl. extended hours (`bot.timewarp`), Sep 14–Oct 27 only | | −0.10R (170) as in the videos; −0.07R (133) exit after T1 | |
 | SATYG on 5m bars, the same Sep 14–Oct 27 days, for comparison | | +0.00R (97) / +0.06R (79) | |
+| SATYG gate touch (`sg_entry=touch`): buy-stop at 38.2%, stacked 10m ribbon confirms, stop under the call trigger, T1 50% / T2 61.8%, ribbon hold after T1 | −0.08R (159), win 55% | −0.27R (39), win 46% | |
+| Same, T1 61.8% / T2 full ATR | −0.16R (159), win 39% | −0.28R (39), win 33% | |
+| Gate touch, no ribbon, all out at 61.8%, zero costs | 0.00R (358), win 40% | +0.02R (98), win 39% | |
+
+The gate trade's stop (38.2% down to the 23.6% trigger) is only 14.6% of the daily ATR, so
+0.03% slippage per fill costs about 0.11R a trade. Ribbon confirmation didn't help it.
 
 All are about breakeven. The level statistics hold, but these mechanical entries and exits don't
 turn them into an edge on stocks with 5-minute bars.
