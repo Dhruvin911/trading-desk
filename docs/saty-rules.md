@@ -15,6 +15,7 @@ Videos:
 - **13** The Golden Gate Strat
 - **CA** Conviction Arrows and Time Warp
 - (07, on choosing option strikes, isn't relevant to stock trades)
+- **B1–B3** Basic Trading, episodes 1–3: Managing Yourself, A Trading Flywheel, The Trading System
 
 ## ATR Levels (video 04)
 - ATR = Wilder's ATR(14). Day mode levels are measured from the previous close.
@@ -114,6 +115,25 @@ here, so a bearish read just means no longs.
 - Setup / thesis, trigger, entry (on a break, retest or continuation; never chase), profit
   levels or stop moves, and a technical stop. Once price passes the previous close, move the
   stop there. A break above 38.2% targets the 50% mid-range.
+
+## Basic Trading series (episodes 1–3)
+His general rules, and where the desk already applies each one:
+
+| Rule (episode) | On the desk |
+|---|---|
+| Fixed risk per trade (R) and a cap per day or week (B1) | `risk_per_trade_usd`, `max_daily_loss_usd` in `desk/config.json` |
+| Size from a technical stop: shares = R ÷ (entry − stop), not a fixed % stop (B1, B3) | the risk-manager agent sizes exactly this way |
+| Wins bigger than losses, losses small; aim for at least 2R (B1) | `min_reward_risk` = 2.0 |
+| Never size up after a winning streak; position size stays consistent (B1, B3) | sizing is fixed by config and the agents can't change it |
+| Entry conditions, profit levels and failure point are known before entering (B3) | each plan in `desk/notes/plans/` holds entry, stop and target |
+| When the system says exit, exit: "trade like an algo" (B1, B3) | the trader agent follows the plan; the guard hook always allows exits |
+| Trade liquid names with tight spreads (B3) | strategy.md skips spreads wider than 0.2% |
+| Journal every trade: reason in and out, and what happened afterwards (B1) | the guard journal records orders; reasons are in the run reports |
+| Don't keep changing the system; change it only against a tested baseline (B1) | applies to how this backtesting is done: rules are fixed before the hold-out |
+| Keep day trades, short swings and longer positions in separate accounts (B2) | the desk trades one Agentic account, day trades only by default |
+
+Episode 2 lists the setups for later episodes: Vomy, Phase Oscillator divergences, continuation
+trades, flags, and the squeeze for swings. Those episodes aren't out yet.
 
 ## Still not coded
 TTM squeeze, RSI / "Ready Aim Fire", trend lines, VIX pivots, options flow, and the 3-minute
