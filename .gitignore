@@ -5,3 +5,5 @@ desk/notes/
 desk/cache/
 __pycache__/
 *.tmp
+.venv/
+reports/
