@@ -1,0 +1,7 @@
+desk/state.json
+desk/journal/
+desk/runs/
+desk/notes/
+desk/cache/
+__pycache__/
+*.tmp

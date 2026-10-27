@@ -1,0 +1,43 @@
+{
+  "account_number": "",
+  "mcp_server": "robinhood-trading",
+  "timezone": "America/New_York",
+  "watchlist": [
+    "MRVL",
+    "RKLB"
+  ],
+  "restrict_to_watchlist": true,
+  "scan_id": null,
+  "max_candidates_per_cycle": 3,
+  "cycle_minutes": 5,
+  "entry_windows": [
+    {
+      "start": "09:35",
+      "end": "11:30"
+    },
+    {
+      "start": "13:30",
+      "end": "15:30"
+    }
+  ],
+  "flatten_at": "15:50",
+  "require_trader_agent": true,
+  "risk": {
+    "risk_per_trade_usd": 10,
+    "max_position_usd": 250,
+    "max_open_positions": 2,
+    "max_entries_per_day": 3,
+    "max_daily_loss_usd": 25,
+    "max_day_trades_5d": 3,
+    "allowed_entry_types": [
+      "limit",
+      "stop_limit"
+    ],
+    "min_reward_risk": 2.0,
+    "allow_swing": false
+  },
+  "strategy": {
+    "ema_fast": 9,
+    "ema_slow": 20
+  }
+}
