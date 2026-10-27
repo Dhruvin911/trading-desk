@@ -129,6 +129,8 @@ transcripts arrived, from the indicator code alone.
 | SATYG golden gate (10m ribbon, 5m entries, 13-EMA exit only after T1, T2 at 1 ATR) | 0.00R (197) | +0.03R (93) | −0.05R |
 | SATYG, 13-EMA exit from the start (as in the videos) | −0.06R (257) | not run | |
 | SATYD + SATYG together | | +0.05R (120) | |
+| SATYG with Time Warp: 3m entries, 10m ribbon incl. extended hours (`bot.timewarp`), Sep 14–Oct 27 only | | −0.10R (170) as in the videos; −0.07R (133) exit after T1 | |
+| SATYG on 5m bars, the same Sep 14–Oct 27 days, for comparison | | +0.00R (97) / +0.06R (79) | |
 
 All are about breakeven. The level statistics hold, but these mechanical entries and exits don't
 turn them into an edge on stocks with 5-minute bars.
