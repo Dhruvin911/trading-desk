@@ -189,7 +189,7 @@ def record(day, pos):
         "date": day.isoformat(), "symbol": pos.symbol, "setup": pos.setup, "level": pos.level_name,
         "level_price": round(pos.level, 2), "entry_time": entry_ts.astimezone(ET).strftime("%H:%M"),
         "entry": round(pos.entry, 2), "stop": round(pos.entry - pos.risk, 2), "risk_pct": round(100 * pos.risk / pos.entry, 3),
-        "t1": round(pos.t1, 2), "trimmed": pos.trimmed, "exit_reason": pos.fills[-1][4],
+        "t1": round(pos.t1, 2), "t2": round(pos.t2, 2) if pos.t2 else None, "trimmed": pos.trimmed, "exit_reason": pos.fills[-1][4],
         "minutes": int((exit_ts - entry_ts).total_seconds() // 60), "r": round(pos.realized_r, 3),
         "mfe_r": round((pos.high - pos.entry) / pos.risk, 2) if pos.high else 0.0,
         "mae_r": round((pos.low - pos.entry) / pos.risk, 2) if pos.low != float("inf") else 0.0,

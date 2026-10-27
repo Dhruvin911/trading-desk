@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bot.backtest import wilder_atr  # noqa: E402
-from bot.strategy import Bar, DayContext, Params, SymbolStrategy, saty_levels  # noqa: E402
+from bot.strategy import Bar, DayContext, Params, SymbolStrategy, check_price, find_flag, saty_levels  # noqa: E402
 
 ET = ZoneInfo("America/New_York")
 
@@ -45,6 +45,29 @@ class SatyTests(unittest.TestCase):
         self.assertEqual(armed.level_name, "gate")
         self.assertAlmostEqual(armed.level, 103.82)
         self.assertGreater(armed.target, armed.trigger)
+
+    def test_bull_and_bear_flag(self):
+        t = dt.datetime(2026, 3, 2, 10, 0, tzinfo=ET)
+        p = Params()
+        pole = [Bar(t, c - 1, c, c - 1, c, 5000) for c in (100, 101, 102, 103, 104)]
+        flag = [Bar(t, 103.6, 103.8, 103.2, 103.4, 1000), Bar(t, 103.4, 103.6, 103.0, 103.3, 1000)]
+        self.assertEqual(find_flag(pole + flag, atr=1.0, p=p, bull=True), (103.8, 103.0))
+        self.assertIsNone(find_flag(pole + flag, atr=3.0, p=p, bull=True))     # pole too small
+        mirror = [Bar(t, 200 - b.o, 200 - b.l, 200 - b.h, 200 - b.c, b.v) for b in pole + flag]
+        self.assertEqual(find_flag(mirror, atr=1.0, p=p, bull=False), (96.2, 97.0))
+
+    def test_second_target_sells_the_rest(self):
+        p = Params(setups=("SATY",))
+        s = SymbolStrategy("X", p)
+        s.start_day(DayContext(pdc=100.0, daily_atr=10.0))
+        t = dt.datetime(2026, 3, 2, 11, 0, tzinfo=ET)
+        from bot.strategy import ArmedEntry
+        s.armed = ArmedEntry("X", "SATY", "gate_touch", 103.82, 103.83, 102.0, 99, t, target=106.18, target2=107.86)
+        check_price(s, Bar(t, 103.5, 103.9, 103.4, 103.85, 1), p)
+        self.assertIsNotNone(s.position)
+        events = check_price(s, Bar(t, 104, 108.0, 104, 107.9, 1), p)
+        self.assertEqual([e[0] for e in events], ["trim", "closed"])
+        self.assertEqual(events[1][1].fills[-1][4], "second target")
 
 
 if __name__ == "__main__":

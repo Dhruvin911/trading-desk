@@ -21,17 +21,38 @@ Setups (long only - the Robinhood account can't short):
        new high of day recently, pullback touches the rising 5m 9 EMA on lighter
        volume and closes above it; buy-stop above that bar.
 
-  SATY Saty ATR Levels + Pivot Ribbon (from the Saty indicator code; rules provisional
-       until checked against the videos):
+  SATY Saty ATR Levels + Pivot Ribbon (from the Saty indicator code and his published
+       setup names; rules provisional until checked against the video transcripts):
        levels = prior daily close +/- fib x daily ATR(14): 23.6% call/put trigger,
        38.2% / 50% / 61.8% ("golden gate") / 78.6% / 100% / 123.6% / 161.8% targets.
+       Between the two triggers is the trigger box: no longs there.
        Ribbon = 8/21/34 EMA on 5m closes; bullish when close >= 8 >= 21 >= 34;
-       conviction = 13 EMA above 48 EMA. Entry variants (Params.saty_entries):
+       conviction = 13 EMA above 48 EMA. Time Warp (optional) = the same ribbon on a
+       higher timeframe built from the 5m bars must also be bullish.
+       Range used (optional) = today's high - low as a share of the daily ATR; no new
+       longs once most of the ATR is spent.
+       Entry variants (Params.saty_entries):
          trigger   first 5m close above the call trigger
          gate      first 5m close above the 38.2% level (golden gate opens; aims at 61.8%)
+         gate_touch   resting buy-stop at the 38.2% level while price sits between the
+                   call trigger and the gate; stop under the call trigger. Golden gate
+                   completion (38.2% -> 61.8% the same day) measured 51-57% on the
+                   17-ticker list, Mar-Oct 2026.
+         gate_retest  after the gate opened, a bar dips back to 38.2% and closes above it
          pullback  above the call trigger, a bar dips to the 21 EMA and closes above it
-       Buy-stop above that bar, stop under the bar low / level, first target = the
-       nearest ATR level at least saty_min_r R above the entry.
+         flag      bull flag above the call trigger: a pole of >= flag_pole_atr 5m ATRs,
+                   then 2-flag_max_bars bars drifting sideways/down on lighter volume,
+                   holding the 21 EMA and retracing <= flag_retrace of the pole;
+                   buy-stop above the flag high, stop under the flag low
+         ivomy     the ribbon flips bullish (8 > 21 > 34 after not being) with a close
+                   above it, above the call trigger
+       Targets are ATR levels: T1 = nearest level >= saty_min_r R above the entry (sell
+       trim_frac), T2 = the next level above T1 (sell the rest); between them the runner
+       exits on a 5m close below the saty_runner_ema ribbon EMA.
+       saty_flag_confirm: the other variants only fire when a bull flag is also in place,
+       and their buy-stop moves to the flag high.
+       Bear flag (long-only account): a bear flag breaking down closes an open long and
+       blocks new longs for the rest of that flag's move.
 
 Exits (guide sections 4 and 15):
   - hard stop
@@ -81,6 +102,10 @@ class Params:
     flatten: time = time(15, 55)
     max_trades_per_symbol: int = 2
     slippage_pct: float = 0.0003       # per fill
+    # Inside the bar an entry fills on: "worst" assumes its low came after the fill;
+    # "ohlc" assumes open-low-high-close for a green bar (the low came first) and
+    # open-high-low-close for a red one.
+    entry_bar_path: str = "ohlc"         # matched 1m execution exactly on Oct 2026
     # Saty ATR Levels + Pivot Ribbon
     saty_entries: tuple = ("trigger", "gate", "pullback")
     saty_conviction: bool = True       # 13 EMA above 48 EMA on 5m
@@ -88,6 +113,16 @@ class Params:
     saty_stop_atr: float = 0.1         # stop buffer under the bar low / level, in 5m ATRs
     saty_runner_ema: int = 21          # runner exits on a 5m close below this ribbon EMA
     saty_rs: bool = False              # also require beating SPY since the open
+    saty_t2: bool = True               # second target at the next ATR level above T1
+    saty_htf_bars: int = 0             # Time Warp: ribbon on N x 5m bars must be bullish (0 = off)
+    saty_max_range: Optional[float] = None  # no entries once (HOD - LOD) / daily ATR >= this
+    saty_bear_flag_exit: bool = True
+    saty_stop_only: tuple = ("gate_touch",)  # variants that exit before T1 only at the stop
+    saty_flag_confirm: bool = False    # trigger/gate/gate_retest/pullback/ivomy also need a bull flag
+    flag_pole_atr: float = 2.0         # pole height in 5m ATRs
+    flag_pole_bars: int = 6            # pole made within this many bars
+    flag_max_bars: int = 6             # flag length 2..this
+    flag_retrace: float = 0.5          # flag may give back at most this share of the pole
 
 
 @dataclass
@@ -131,6 +166,7 @@ class ArmedEntry:
     expires_after: int      # 5m bar index after which it lapses
     armed_at: object
     target: Optional[float] = None   # fixed first target (SATY); otherwise t1_r R
+    target2: Optional[float] = None  # second target: the rest is sold there
 
 
 @dataclass
@@ -144,6 +180,7 @@ class Position:
     risk: float
     t1: float
     opened_at: object
+    t2: Optional[float] = None      # sell the rest here
     remaining: float = 1.0          # fraction of the original size still open
     trimmed: bool = False
     realized_r: float = 0.0
@@ -195,6 +232,8 @@ class SymbolStrategy:
         self.symbol, self.p = symbol, params
         self.ema9 = EMA(9)
         self.ribbon = {n: EMA(n) for n in (8, 13, 21, 34, 48)}
+        self.htf_ribbon = {n: EMA(n) for n in (8, 21, 34)}
+        self.prev_bull = False
         self.atr = ATR(14)
         self.ctx = DayContext()
 
@@ -224,6 +263,10 @@ class SymbolStrategy:
                                  "break_vol": None, "done": False}
         self.saty = saty_levels(ctx.pdc, ctx.daily_atr)
         self.saty_used = set()     # entry variants already taken today
+        self.bars = []             # today's 5m bars, for flags
+        self.lod = None
+        self.gate_open = False
+        self.bear_block = None     # broken bear flag's high: no longs until a close above it
     # -- 5m close -----------------------------------------------------------
     def on_5m_close(self, bar: Bar, slot: str, close_time: time, spy_change: Optional[float], market=None):
         """Call once per completed 5m regular-session bar.
@@ -244,6 +287,14 @@ class SymbolStrategy:
         self.vwap = self.cum_pv / self.cum_v if self.cum_v else bar.c
         ema = self.ema9.update(bar.c)
         rib = {n: e.update(bar.c) for n, e in self.ribbon.items()}
+        self.bars.append(bar)
+        self.lod = bar.l if self.lod is None else min(self.lod, bar.l)
+        self._update_htf(bar)
+        bull = bar.c >= rib[8] >= rib[21] >= rib[34]
+        self.flipped, self.prev_bull = bull and not self.prev_bull, bull
+        mid = self.saty.get(0.382)
+        self.gate_opened_now = mid is not None and not self.gate_open and bar.c > mid
+        self.gate_open = self.gate_open or self.gate_opened_now
         atr = self.atr.update(bar)
         self.ema_hist.append(ema)
         self.vol_hist.append(bar.v)
@@ -262,10 +313,18 @@ class SymbolStrategy:
                 actions.append(("exit", "5m close below 9 EMA"))
             elif pos.setup == "EMA" and not pos.trimmed and bar.c < ema - 0.1 * atr:
                 actions.append(("exit", "lost the 9 EMA"))
-            elif pos.setup == "SATY" and not pos.trimmed and (bar.c < rib[34] or bar.c < pos.level * (1 - 0.001)):
+            elif (pos.setup == "SATY" and not pos.trimmed and pos.level_name not in p.saty_stop_only
+                  and (bar.c < rib[34] or bar.c < pos.level * (1 - 0.001))):
                 actions.append(("exit", "lost the ribbon / level"))
-            elif pos.setup == "SATY" and pos.trimmed and bar.c < rib[p.saty_runner_ema]:
+            elif pos.setup == "SATY" and pos.trimmed and p.saty_runner_ema and bar.c < rib[p.saty_runner_ema]:
                 actions.append(("exit", f"5m close below {p.saty_runner_ema} EMA"))
+        bear = find_flag(self.bars[:-1], atr, p, bull=False) if "SATY" in p.setups else None
+        if bear and bar.c < bear[0]:
+            self.bear_block = bear[1]
+            if pos is not None and pos.setup == "SATY" and p.saty_bear_flag_exit and not any(a[0] == "exit" for a in actions):
+                actions.append(("exit", "bear flag breakdown"))
+        elif self.bear_block is not None and bar.c > self.bear_block:
+            self.bear_block = None
 
         # An armed entry that wasn't triggered lapses, or is cancelled by a close below the level
         if self.armed is not None:
@@ -329,13 +388,36 @@ class SymbolStrategy:
         self.prev_close = bar.c
         return actions
 
+    def _update_htf(self, bar):
+        """Time Warp: fold 5m bars into N x 5m bars from the open; ribbon on their closes."""
+        n = self.p.saty_htf_bars
+        if not n:
+            return
+        if self.idx % n == n - 1:
+            for e in self.htf_ribbon.values():
+                e.update(bar.c)
+
+    def _htf_bull(self):
+        e = self.htf_ribbon
+        return e[8].value is not None and e[8].value >= e[21].value >= e[34].value
+
     def _saty(self, bar, local_time, rib, atr, spy_change):
         p, lv = self.p, self.saty
+        bull, flipped, opened_now = self.prev_bull, self.flipped, self.gate_opened_now
+        prev = getattr(self, "prev_close", None)
+        prev = bar.o if prev is None or self.idx == 0 else prev
+        trigger, mid = lv[0.236], lv[0.382]
         if not (p.entry_start <= local_time < p.last_entry) or self.trades_today >= p.max_trades_per_symbol:
             return None
-        if not (bar.c >= rib[8] >= rib[21] >= rib[34]):
+        if not bull or bar.c <= trigger:            # bearish ribbon or inside the trigger box
             return None
         if p.saty_conviction and rib[13] <= rib[48]:
+            return None
+        if p.saty_htf_bars and not self._htf_bull():
+            return None
+        if p.saty_max_range is not None and (self.hod - self.lod) >= p.saty_max_range * self.ctx.daily_atr:
+            return None
+        if self.bear_block is not None:
             return None
         ctx = self.ctx
         if p.require_daily_trend and (ctx.daily_ema9 is None or ctx.pdc is None or ctx.pdc <= ctx.daily_ema9):
@@ -346,32 +428,52 @@ class SymbolStrategy:
             return None
         if p.saty_rs and (spy_change is None or bar.c / self.day_open - 1 <= spy_change):
             return None
-        prev = getattr(self, "prev_close", None)
-        prev = bar.o if prev is None or self.idx == 0 else prev
-        trigger, mid = lv[0.236], lv[0.382]
         for variant in p.saty_entries:
             if variant in self.saty_used:
                 continue
+            entry = round(bar.h + 0.01, 2)
             if variant == "trigger" and prev <= trigger < bar.c and bar.c < mid:
                 level, stop_base = trigger, min(bar.l, trigger)
-            elif variant == "gate" and prev <= mid < bar.c and bar.c < lv[0.618]:
+            elif variant == "gate_touch" and not self.gate_open and bar.c < mid:
+                entry, level, stop_base = round(mid + 0.01, 2), mid, trigger
+            elif variant == "gate" and opened_now and prev <= mid and bar.c < lv[0.618]:
                 level, stop_base = mid, min(bar.l, mid)
-            elif (variant == "pullback" and bar.c > trigger and bar.l <= rib[21] + 0.1 * atr
+            elif (variant == "gate_retest" and self.gate_open and not opened_now and bar.c > mid
+                  and bar.l <= mid + 0.1 * atr and bar.c < lv[0.618]):
+                level, stop_base = mid, min(bar.l, mid)
+            elif (variant == "pullback" and bar.l <= rib[21] + 0.1 * atr
                   and bar.c > rib[21] and bar.l > rib[34]):
                 level, stop_base = trigger, min(bar.l, rib[34])
+            elif variant == "flag":
+                flag = find_flag(self.bars, atr, p, bull=True)
+                if not flag or flag[1] < rib[21] - 0.1 * atr:
+                    continue
+                entry = round(flag[0] + 0.01, 2)
+                level, stop_base = flag[1], flag[1]
+            elif variant == "ivomy" and flipped and rib[8] > rib[21] > rib[34]:
+                level, stop_base = min(rib[34], bar.l), min(bar.l, rib[34])
             else:
                 continue
-            entry = round(bar.h + 0.01, 2)
+            if p.saty_flag_confirm and variant != "flag":
+                flag = find_flag(self.bars, atr, p, bull=True)
+                if not flag:
+                    continue
+                entry = round(max(entry, flag[0] + 0.01), 2)
             stop = round(stop_base - max(0.01, p.saty_stop_atr * atr), 2)
             risk = entry - stop
-            if risk <= 0 or risk > p.max_risk_atr * atr or risk < p.min_risk_pct * entry:
+            level_risk = variant == "gate_touch"      # risk set by the ATR levels, not the 5m ATR
+            if risk <= 0 or (risk > p.max_risk_atr * atr and not level_risk) or risk < p.min_risk_pct * entry:
                 continue
-            target = next((v for k, v in sorted(lv.items()) if k > 0 and v >= entry + p.saty_min_r * risk), None)
+            above = [v for k, v in sorted(lv.items()) if k > 0]
+            target = next((v for v in above if v >= entry + p.saty_min_r * risk), None)
             if target is None:
                 continue
-            self.saty_used.add(variant)
+            target2 = next((v for v in above if v > target), None) if p.saty_t2 else None
+            if variant not in ("flag", "gate_touch"):    # these re-arm every bar until filled
+                self.saty_used.add(variant)
             self.armed = ArmedEntry(self.symbol, "SATY", variant, level, entry, stop,
-                                    expires_after=self.idx + p.arm_bars, armed_at=bar.ts, target=target)
+                                    expires_after=self.idx + p.arm_bars, armed_at=bar.ts,
+                                    target=target, target2=target2)
             return self.armed
         return None
 
@@ -430,12 +532,14 @@ class SymbolStrategy:
         risk = price - a.stop
         t1 = a.target if a.target is not None and a.target > price else price + self.p.t1_r * risk
         self.position = Position(a.symbol, a.setup, a.level_name, a.level, price, a.stop, risk,
-                                 t1=t1, opened_at=ts,
+                                 t1=t1, t2=a.target2 if a.target2 and a.target2 > t1 else None, opened_at=ts,
                                  fills=[(ts, "buy", round(price, 4), 1.0, a.setup)])
         self.armed = None
         self.trades_today += 1
         if a.setup == "BRH":
             self.levels[a.level_name]["done"] = True
+        if a.setup == "SATY" and a.level_name != "flag":
+            self.saty_used.add(a.level_name)
         return self.position
 
     def position_closed(self):
@@ -454,6 +558,41 @@ def saty_levels(close, atr):
     for f in SATY_FIBS:
         out[f], out[-f] = close + f * atr, close - f * atr
     return out
+
+
+def find_flag(bars, atr, p: Params, bull=True):
+    """A flag ending at the last bar: (flag high, flag low) for a bull flag,
+    (flag low, flag high) for a bear flag - i.e. (breakout side, invalidation side).
+    Pole: a move of >= flag_pole_atr x atr within flag_pole_bars bars into the pole end;
+    flag: the 2..flag_max_bars bars after it stay inside the pole's last flag_retrace,
+    don't make a new extreme, and trade on lighter average volume than the pole."""
+    if not atr:
+        return None
+    sign = 1 if bull else -1
+    for k in range(2, p.flag_max_bars + 1):
+        if len(bars) < k + 2:
+            break
+        flag, pole_end = bars[-k:], bars[-k - 1]
+        pole = bars[max(0, len(bars) - k - 1 - p.flag_pole_bars):len(bars) - k]
+        if bull:
+            top, base = pole_end.h, min(b.l for b in pole)
+            height = top - base
+            hi, lo = max(b.h for b in flag), min(b.l for b in flag)
+            ok = hi <= top and lo >= top - p.flag_retrace * height
+        else:
+            top, base = pole_end.l, max(b.h for b in pole)
+            height = base - top
+            hi, lo = min(b.l for b in flag), max(b.h for b in flag)
+            ok = hi >= top and lo <= top + p.flag_retrace * height
+        if height < p.flag_pole_atr * atr or not ok:
+            continue
+        if sum(b.v for b in flag) / k >= sum(b.v for b in pole) / len(pole):
+            continue
+        # The pole end must be the pole's extreme
+        if sign * (pole_end.h if bull else pole_end.l) < max(sign * (b.h if bull else b.l) for b in pole):
+            continue
+        return (hi, lo)
+    return None
 
 
 def is_leader(ctx: DayContext):
@@ -478,6 +617,10 @@ def check_price(strategy: SymbolStrategy, bar: Bar, p: Params):
         else:
             strategy.entry_filled(fill, bar.ts)
             events.append(("entry", fill))
+            if p.entry_bar_path == "ohlc" and bar.c >= bar.o:
+                # Green bar: the low came before the fill; only the close is known after it.
+                strategy.position.mark(Bar(bar.ts, fill, bar.h, min(fill, bar.c), bar.c, bar.v))
+                return events
             # Same bar: only the part after the trigger is known; check the stop on the low.
     pos = strategy.position
     if pos is None:
@@ -494,6 +637,10 @@ def check_price(strategy: SymbolStrategy, bar: Bar, p: Params):
         pos.trimmed = True
         pos.stop = max(pos.stop, pos.entry)
         events.append(("trim", price))
+    if pos.trimmed and pos.t2 is not None and bar.h >= pos.t2:
+        price = max(pos.t2, bar.o) * (1 - slip)
+        pos.exit(price, pos.remaining, bar.ts, "second target")
+        events.append(("closed", strategy.position_closed()))
     return events
 
 
