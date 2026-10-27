@@ -1,8 +1,9 @@
 # Trading desk: Claude agents + Robinhood
 
-A team of Claude Code subagents that trades your Robinhood **Agentic** account on 5-minute
-VWAP / EMA setups around PDH/PDL and PMH/PML. You switch it on and off, and it only opens trades
-inside the time windows you set.
+A team of Claude Code subagents that trades your Robinhood **Agentic** account on Saty Mahajan's
+system: ATR Levels (day mode) for levels and targets, the Pivot Ribbon on the 10-minute chart for
+trend, and 3-minute candles for entries (see `strategy.md` and `docs/saty-rules.md`). You switch it
+on and off, and it only opens trades inside the time windows you set.
 
 ```
  scanner ──► technical / news / fundamentals analysts ──► risk-manager ──► trader ──► Robinhood

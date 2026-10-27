@@ -17,6 +17,7 @@ The guard blocks the order with a "PAPER MODE" message after recording it. That 
 
 ## Exits (do these first)
 - `sell_all`: cancel the open stop order for that symbol (get_equity_orders, state `confirmed`/`queued`), then sell the full position with a limit at the current bid.
+- `sell_part`: scale-out at an ATR level. Cancel the open stop order, sell `quantity` shares with a limit at the current bid, then place a new `stop_market` sell for the shares that are left at `new_stop` (or the old stop if `new_stop` is 0).
 - `move_stop`: cancel the old stop order, then place a new `stop_market` sell for the full quantity at `new_stop`.
 Robinhood won't accept two sell orders for the same shares, so always cancel before replacing.
 
@@ -29,7 +30,8 @@ Robinhood won't accept two sell orders for the same shares, so always cancel bef
 Keep one file per position at `desk/notes/plans/<SYMBOL>.json`:
 ```json
 {"symbol": "X", "mode": "paper|live", "status": "pending|open|closed", "style": "intraday|swing",
- "entry_order_id": "", "stop_order_id": "", "quantity": 0, "entry": 0, "stop": 0, "target": 0,
+ "entry_order_id": "", "stop_order_id": "", "quantity": 0, "quantity_open": 0, "entry": 0, "stop": 0,
+ "setup": "A|B|C", "targets": [{"level": "+50%", "price": 0, "done": false}],
  "risk_usd": 0, "opened_at": "", "closed_at": "", "exit_price": 0, "pnl_usd": 0, "log": ["HH:MM what happened"]}
 ```
 

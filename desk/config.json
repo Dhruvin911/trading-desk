@@ -12,7 +12,7 @@
   "cycle_minutes": 5,
   "entry_windows": [
     {
-      "start": "09:35",
+      "start": "09:40",
       "end": "11:30"
     },
     {
@@ -37,7 +37,26 @@
     "allow_swing": false
   },
   "strategy": {
-    "ema_fast": 9,
-    "ema_slow": 20
+    "system": "saty",
+    "atr_length": 14,
+    "atr_fibs": [
+      0.236,
+      0.382,
+      0.5,
+      0.618,
+      0.786,
+      1.0,
+      1.236
+    ],
+    "ribbon": [
+      8,
+      13,
+      21,
+      34,
+      48
+    ],
+    "trend_interval": "10minute",
+    "entry_candle_minutes": 3,
+    "max_range_used": 0.7
   }
 }
