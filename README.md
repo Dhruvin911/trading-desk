@@ -34,7 +34,7 @@ on and off, and it only opens trades inside the time windows you set.
 ```bash
 ./desk.py on --until 11:30        # switch on; switches itself off at 11:30 ET
 ./desk.py window 09:35-11:30      # change entry windows (ET), any number of them
-./desk.py run                     # leave running in a terminal: one cycle per 5-min bar while on
+./desk.py run                     # leave running in a terminal: one cycle per 3-min candle while on
 ./desk.py status                  # on/off, mode, phase, entries and day trades used
 ./desk.py off                     # stop (open positions keep their stop orders at Robinhood)
 ./desk.py kill                    # emergency: block every order, including exits
@@ -89,10 +89,10 @@ sizing from `risk_per_trade_usd`.
 - The day-trade and entry counts are based on orders the guard let through, not on fills. An order that
   Robinhood rejected still counts, which errs on the safe side.
 - A protective stop is placed only after the entry fills, so a position can be unprotected for a moment
-  or, if the fill comes after the run ends, until the next cycle (≤ 5 minutes).
+  or, if the fill comes after the run ends, until the next cycle (≤ 3 minutes).
 - Under FINRA's pattern-day-trader rule, a margin account under $25k is limited to 3 day trades in
   5 business days. Robinhood's own pre-trade check also flags this. Check Robinhood's current rules.
-- Each cycle starts several agents. Running every 5 minutes all day costs real tokens. Shorter windows
+- Each cycle starts several agents. Running every 3 minutes all day costs real tokens (news and fundamentals are cached, so most cycles start only the technical analyst). Shorter windows
   cost less.
 
 ## Files

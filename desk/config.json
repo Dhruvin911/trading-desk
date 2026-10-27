@@ -9,7 +9,7 @@
   "restrict_to_watchlist": true,
   "scan_id": null,
   "max_candidates_per_cycle": 3,
-  "cycle_minutes": 5,
+  "cycle_minutes": 3,
   "entry_windows": [
     {
       "start": "09:40",

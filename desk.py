@@ -7,7 +7,7 @@
   ./desk.py window 09:35-11:30 [...]   set the entry windows
   ./desk.py mode paper|live            paper (default) records orders, live sends them
   ./desk.py kill / unkill              block every order, including exits
-  ./desk.py run                        run a cycle every 5 minutes while the desk is on
+  ./desk.py run                        run a cycle every `cycle_minutes` (3) while the desk is on
   ./desk.py once [--phase P] [--dry-run]   run one cycle now
   ./desk.py journal [YYYY-MM-DD]       print the order journal for a day
   ./desk.py mcp-name NAME              point the agents at your Robinhood MCP server name
@@ -146,7 +146,7 @@ def run_cycle(cfg, state, phase, dry_run=False):
     log = desklib.DESK / "runs" / local.date().isoformat() / f"{local:%H%M}-{phase}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     print(f"[{local:%H:%M:%S}] cycle: {phase} ({state['mode']})", flush=True)
-    timeout = cfg["cycle_minutes"] * 60 - 30
+    timeout = cfg.get("cycle_timeout_seconds") or cfg["cycle_minutes"] * 60 - 15
     env = {**os.environ, "DESK_AGENT": "1"}
     try:
         result = subprocess.run(cmd, cwd=desklib.ROOT, env=env, capture_output=True, text=True, timeout=timeout)
@@ -158,7 +158,8 @@ def run_cycle(cfg, state, phase, dry_run=False):
 
 
 def next_tick(cfg, now):
-    """Next 5-minute bar close plus 20 seconds, so each cycle sees a finished bar."""
+    """Next bar close (every `cycle_minutes`, aligned to the clock, so 9:30, 9:33, ... for 3) plus
+    20 seconds, so each cycle sees a finished bar. A cycle that runs long skips the next tick."""
     step = cfg["cycle_minutes"] * 60
     epoch = int(now.timestamp())
     return dt.datetime.fromtimestamp((epoch // step + 1) * step + 20, dt.timezone.utc)
