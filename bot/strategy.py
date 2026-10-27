@@ -70,6 +70,14 @@ Setups (long only - the Robinhood account can't short):
                     runners exit on a 10m close below the sd_runner EMA (21 or the 5/12
                     cloud); a 10m close below the 34/50 cloud before T1 ends the trade
 
+  SATYG Saty's Golden Gate, from "The Golden Gate Strat" and his Time Warp videos:
+       once price reaches +38.2% ATR (the golden gate), ~60% of the time it reaches 61.8%
+       (the golden fib) that day; any ATR level reached leads to the next >70% of the time.
+       Trend = 10m ribbon 8 > 13 > 21 > 34 > 48; entries on the lower timeframe (5m here,
+       3m in the videos) on a pullback into the 8-13 zone (21/34/48 also "viable") that
+       holds, above the previous close; never chase. Stop under the 48 (or the trigger).
+       Scale out at 50% and 61.8%; hold while no 10m candle closes below the 13 EMA.
+
 Exits (guide sections 4 and 15):
   - hard stop
   - first target at +t1_r R: sell half, stop to break-even ("never let a green trade go red")
@@ -129,6 +137,18 @@ class Params:
     sd_t2: Optional[float] = 1.0       # full-range target (None: runner only)
     sd_runner: int = 21                # runner exit EMA on 10m closes (12 = 5/12 cloud)
     sd_min_room_r: float = 0.5         # T1 at least this many R above the entry
+    # SATYG: Saty's Golden Gate (videos "The Golden Gate Strat", "Conviction Arrows and Time
+    # Warp", "Scalping and Day Trading SPX and SPY with Time Warp")
+    sg_pullback_ema: int = 8           # pullback reaches the 10m 8 EMA (into the 8-13 zone) or deeper
+    sg_hold_ema: int = 13              # and the 5m bar closes back above this 10m EMA
+    sg_stop: str = "48"                # stop under this 10m EMA ("21", "34", "48") or "trigger"
+    sg_exit_ema: int = 13              # exit on a 10m close below this EMA (13, or 21)
+    sg_t1: float = 0.5                 # first scale-out level (share of ATR)
+    sg_t2: Optional[float] = 0.618     # golden fib: the rest (None: hold until the exit EMA)
+    sg_exit_after_t1: bool = False     # the 10m-close exit only once T1 is taken (stop before that)
+    sg_above_pdc: bool = True          # bias: above the previous close
+    sg_max_range: Optional[float] = None
+    sg_min_room_r: float = 0.5
     slippage_pct: float = 0.0003       # per fill
     # Inside the bar an entry fills on: "worst" assumes its low came after the fill;
     # "ohlc" assumes open-low-high-close for a green bar (the low came first) and
@@ -261,7 +281,8 @@ class SymbolStrategy:
         self.ema9 = EMA(9)
         self.ribbon = {n: EMA(n) for n in (8, 13, 21, 34, 48)}
         self.htf_ribbon = {n: EMA(n) for n in (8, 21, 34)}
-        self.e10 = {n: EMA(n) for n in (5, 8, 9, 12, 21, 34, 50)}
+        self.e10 = {n: EMA(n) for n in (5, 8, 9, 12, 13, 21, 34, 48, 50)}
+        self.e10v = {}
         self.atr10 = ATR(14)
         self.prev_bull = False
         self.atr = ATR(14)
@@ -418,21 +439,70 @@ class SymbolStrategy:
             armed = self._saty(bar, close_time, rib, atr, spy_change)
             if armed:
                 actions.append(("arm", armed))
-        if "SATYD" in p.setups and self.saty:
-            actions += self._saty_day(bar, close_time)
+        if ("SATYD" in p.setups or "SATYG" in p.setups) and self.saty:
+            b10 = self._update_10m(bar)
+            if "SATYD" in p.setups:
+                actions += self._saty_day(bar, close_time, b10)
+            if "SATYG" in p.setups:
+                actions += self._saty_gate(bar, close_time, b10, atr)
         self.prev_close = bar.c
         return actions
 
-    def _saty_day(self, bar, close_time):
-        """Build 10m bars from pairs of 5m bars from the open; act on each 10m close."""
-        p, lv = self.p, self.saty
+    def _saty_gate(self, bar, close_time, b10, atr):
+        """Golden Gate, as in Saty's videos: 10m ribbon trend, 5m entries (Time Warp)."""
+        p, lv, e = self.p, self.saty, self.e10v
+        if not e or e[48] is None:
+            return []
+        actions = []
+        pos = self.position
+        if (b10 is not None and pos is not None and pos.setup == "SATYG" and b10.c < e[p.sg_exit_ema]
+                and (pos.trimmed or not p.sg_exit_after_t1)):
+            actions.append(("exit", f"10m close below the {p.sg_exit_ema} EMA"))
+        if (self.armed is not None or pos is not None or self.trades_today >= p.max_trades_per_symbol
+                or not (p.entry_start <= close_time < p.last_entry)):
+            return actions
+        gate, t1, t2 = lv[0.382], lv[p.sg_t1], lv[p.sg_t2] if p.sg_t2 else None
+        if self.hod < gate or bar.c <= lv[0.236] or bar.c >= t1:      # gate not opened yet / lost trigger / no room
+            return actions
+        if p.sg_above_pdc and bar.c <= self.ctx.pdc:
+            return actions
+        if not (e[8] > e[13] > e[21] > e[34] > e[48]):                # 10m ribbon stacked bullish
+            return actions
+        if p.sg_max_range is not None and (self.hod - self.lod) >= p.sg_max_range * self.ctx.daily_atr:
+            return actions
+        tol = 0.1 * atr
+        pulled = bar.l <= e[p.sg_pullback_ema] + tol and bar.l > e[48] - tol
+        if not (pulled and bar.c > e[p.sg_hold_ema]):
+            return actions
+        entry = round(bar.h + 0.01, 2)
+        ref = lv[0.236] if p.sg_stop == "trigger" else e[int(p.sg_stop)]
+        stop = round(min(bar.l, ref) - max(0.01, p.saty_stop_atr * atr), 2)
+        risk = entry - stop
+        if risk <= 0 or risk < p.min_risk_pct * entry or t1 - entry < p.sg_min_room_r * risk:
+            return actions
+        self.armed = ArmedEntry(self.symbol, "SATYG", "golden_gate", gate, entry, stop,
+                                expires_after=self.idx + p.arm_bars, armed_at=bar.ts, target=t1, target2=t2)
+        actions.append(("arm", self.armed))
+        return actions
+
+    def _update_10m(self, bar):
+        """Build 10m bars from pairs of 5m bars from the open. Returns the 10m bar that
+        closed with this 5m bar, or None; self.e10v / self.atr10v hold the last 10m values."""
         if self.idx % 2 == 0:
             self.b10 = Bar(bar.ts, bar.o, bar.h, bar.l, bar.c, bar.v)
-            return []
-        b = self.b10
+            return None
+        b = self.b10 or bar
         b10 = Bar(b.ts, b.o, max(b.h, bar.h), min(b.l, bar.l), bar.c, b.v + bar.v)
-        e = {n: x.update(b10.c) for n, x in self.e10.items()}
-        atr10 = self.atr10.update(b10)
+        self.e10v = {n: x.update(b10.c) for n, x in self.e10.items()}
+        self.atr10v = self.atr10.update(b10)
+        return b10
+
+    def _saty_day(self, bar, close_time, b10):
+        """Act on each 10m close."""
+        p, lv = self.p, self.saty
+        if b10 is None:
+            return []
+        e, atr10 = self.e10v, self.atr10v
         actions = []
         cloud_lo = min(e[34], e[50])
         pos = self.position

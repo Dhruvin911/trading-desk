@@ -57,3 +57,35 @@ for s in syms:
 for side, (n, c, w, l, sr) in res.items():
     print(f"{'call' if side == 1 else 'put'} side: {n} gate touches, reached 61.8% {c / n:.0%}, "
           f"fixed trade (entry 38.2, stop 23.6, target 61.8, else close): win {w / n:.0%}, avg {sr / n:+.2f}R")
+
+
+def next_level_stats(syms, start, end):
+    """After price first reaches an ATR level (from below, same session), how often does it reach the next one up?"""
+    fibs = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236]
+    hits = {f: [0, 0] for f in fibs[:-1]}
+    for s in syms:
+        d = SymbolData("data", s)
+        for day in sorted(d.m5):
+            if not (start <= day <= end):
+                continue
+            prior = [r for r in d.daily if r[0] < day]
+            if len(prior) < 20:
+                continue
+            lv = saty_levels(prior[-1][4], wilder_atr(prior))
+            bars = [b for _, b in d.rth(day)]
+            if not bars:
+                continue
+            for a, b in zip(fibs, fibs[1:]):
+                if bars[0].o >= lv[a]:
+                    continue
+                i = next((k for k, x in enumerate(bars) if x.h >= lv[a]), None)
+                if i is None:
+                    continue
+                hits[a][0] += 1
+                hits[a][1] += any(x.h >= lv[b] for x in bars[i:])
+    for a, b in zip(fibs, fibs[1:]):
+        n, c = hits[a]
+        print(f"reached {a:+.1%} -> {b:+.1%}: {c}/{n} = {c / max(n, 1):.0%}")
+
+
+next_level_stats(syms, start, end)
