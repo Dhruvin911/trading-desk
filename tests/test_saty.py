@@ -156,6 +156,18 @@ class SatyTests(unittest.TestCase):
         self.assertEqual(t["exit_reason"], "golden fib: GG complete")
         self.assertGreater(t["r"], 1)
 
+    def test_orb_paper_trade(self):
+        from bot.orb_paper import day_trade
+        t0 = dt.datetime(2026, 10, 27, 9, 35)
+        step = dt.timedelta(minutes=5)
+        up = [(t0, Bar(t0, 100.0, 101.2, 99.9, 101.0, 1)), (t0 + step, Bar(t0 + step, 101.0, 103.0, 100.9, 102.5, 1))]
+        entry, exit_, _, _, why = day_trade(up, 1, 101.0, 0.5, step)        # buy-stop at the 5-minute high
+        self.assertEqual((entry, exit_, why), (101.0, 102.5, "close"))
+        down = [(t0, Bar(t0, 100.0, 101.2, 99.0, 99.2, 1))]                 # red bar: high (fill) first, then the low
+        entry, exit_, _, _, why = day_trade(down, 1, 101.0, 0.5, step)
+        self.assertEqual((entry, exit_, why), (101.0, 100.5, "stop"))
+        self.assertIsNone(day_trade(down, 1, 102.0, 0.5, step))           # never reached the level
+
 
 if __name__ == "__main__":
     unittest.main()

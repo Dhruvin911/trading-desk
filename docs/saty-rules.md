@@ -309,3 +309,28 @@ reclaim +$258 / +$102; cool at 61.8 same as 23.6; VIX key-level filter -$378 / -
 +$275 / +$44; cash account +$229; call IV x1.0 +$133 / +$6; 3% spread +$277 / -$71.
 Verdict: about one setup a week; the edge rests on a few golden-fib days (Jun 24, Oct 27), and the
 build period alone is flat-to-negative. Not proven; paper trade it before money.
+
+## 5-minute ORB on stocks in play (Zarattini, Barbon & Aziz 2024, SSRN 4729284) - `python3 -m bot.orb_paper`
+
+Their rules, unchanged: first 5m candle sets the side (green: buy-stop at its high; red: sell-stop
+at its low; doji: none), stop 10% of ATR(14), out at 16:00; price > $5, 14-day volume >= 1M,
+ATR > $0.50, opening-range relative volume >= 100%, top 20 by it; 1% risk, 4x leverage, $0.0035/share.
+Paper (7,000 stocks, 2016-2023): +1,637%, Sharpe 2.81, +0.08 to +0.38R a trade by relative volume.
+
+Our 17 tickers, Mar 9 - Oct 27, 2026 ($25,000):
+
+| run | trades | win | R/trade net | account | Sharpe | max DD |
+|---|---|---|---|---|---|---|
+| paper rules | 783 | 21% | +0.42 | +197% | 3.38 | -8.6% |
+| + $0.01/share slippage each fill | 783 | 21% | +0.40 | +179% | 3.21 | -8.9% |
+| + $0.02/share | 783 | 20% | +0.38 | +163% | 3.03 | -9.3% |
+| no relative-volume filter (their "base") | 2,301 | 20% | +0.22 | +96% | 3.54 | -6.3% |
+| without SNDK and PLTR | 691 | 18% | +0.18 | +60% | 1.83 | -11.5% |
+| $1,000 cash account, long only, top stock, no leverage | 120 | 22% | +0.70 | +53% | 2.18 | -4.5% |
+
+Every month positive with the paper's rules (+20 to +94R). Longs +0.69R, shorts +0.13R.
+Check of the bar data: Sep 14 - Oct 27 on real 1m bars +0.357R vs the same days on 5m bars +0.364R.
+Stop sensitivity (not tuned, the paper's 10% kept): 5% ATR +1.05R, 20% ATR +0.16R.
+Caveats: 8 months of a bull market; our tickers were chosen after they ran (SNDK, PLTR give half
+the R); 10% ATR stops are tight, so real fills matter more than in a backtest; a $1,000 margin
+account can't short and hits the 3-day-trade limit (cash account: one round trip a day settles T+1).
