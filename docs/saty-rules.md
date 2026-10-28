@@ -422,3 +422,30 @@ Verdict: the 5m 13 EMA is too close to price. As a filter it drops good breakout
 candles often close under it before the trend starts); as an exit it shakes out of trend days on
 normal pullbacks. ATR-level take profits trim the few big days that pay for the many small stops.
 Keep: 5m range, relative volume, 10m 8>21 ribbon, 10% ATR stop, hold to the close.
+
+## 15m ORB with ATR levels on MNQ, $1,000 - `python3 -m bot.orb_mnq`
+
+No futures history here, so QQQ stands in: MNQ points = QQQ x 41.1 (NDX / QQQ at the month ends
+Apr-Sep 2026: 41.08-41.11), $2 a point, so $1 of QQQ = $82 per contract; QQQ's ~$10 ATR = ~410
+points = ~$820 per contract. Costs $2.70 per contract round trip (fees + a tick each side).
+One contract at a 10% ATR stop risks ~$80, at the ATR level below ~$120: 8-12% of $1,000, and
+scaling out needs 2+ contracts, so the exits are all-out at the next ATR level (tp1), the second
+(tp2), 16:00, or a 10m close under the 13 EMA.
+
+Grid of 288 (side from the range candle / either break x entry range / trigger / next ATR level
+x ribbon none / 8>21 x stop 10% ATR / range middle / ATR level below x those exits x relative
+volume): 31 build trades for the best settings (one index, ~1 a week); positive points/trade in
+92 of 180 on the build, 90 in August, 111 in the hold-out - a coin flip. Averages on the build:
+take profit at the next / second ATR level +6.2 / +6.7 points, hold to 16:00 -10.7, ATR-level
+entry -13.8, relative volume +9.9 vs -3.3.
+
+Best on the build (range break, range-middle stop, all out at the second ATR level, relative
+volume): +44 / +63 / +16 points a trade (31 / 5 / 14 trades). In the $1,000 account:
+- margin $1,000 a contract: one loss puts equity under the margin; trading stops at $895
+- margin $100, 10% risk cap: after 2-3 losses one contract risks over 10%, every later trade is
+  skipped; $977
+- 25% risk allowed: $3,583 by July, about $9,000 at the peak, $2,266 at the end after a $6,833
+  drawdown; the hold-out alone took $1,000 to $442
+Verdict: no robust edge on one index with this few trades, and $1,000 is too small for MNQ at
+these stops - one contract is 8-15% of the account a trade. Needs ~$5,000+ to keep a contract
+at 2% risk.

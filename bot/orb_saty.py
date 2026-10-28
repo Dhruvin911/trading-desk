@@ -24,6 +24,8 @@ green range -> longs only, red -> shorts only (--direction both: whichever side 
          (5-minute ribbon) c13 / c21: a 5m close under the 13 / 21 EMA | lv_c13: a third at each of
          the next two ATR levels, the rest until a 5m close under the 13 | lv1_c13: half at the
          next ATR level, the rest on the 13 | lv_eod: thirds at the next two levels, the rest to 16:00
+         tp1 / tp2: everything at the next / second ATR level beyond the entry (any level, either side
+         of the previous close), otherwise 16:00 - for single-contract futures
 --relvol volume of the opening range >= its 14-day average (stocks in play)
 One trade per stock per day, entries until 12:00 by default. Results in R after --slip dollars a
 share per fill. Shorts run the long logic on negated prices.
@@ -48,6 +50,7 @@ GRID5 = {"direction": ["candle", "both"], "entry": ["orb", "trigger"], "confirm"
          "rebreak": [False, True], "stop": ["atr10", "or_mid", "level", "ema21"],
          "exit": ["eod", "c13", "c21", "lv_c13", "lv1_c13", "lv_eod"], "relvol": [False, True]}
 TARGETS = {"targets": 2, "lv_c13": 2, "lv1_c13": 1, "lv_eod": 2}     # ATR-level take profits before the hold rule
+FULL_TP = {"tp1": 0, "tp2": 1}                                       # all out at the n-th ATR level beyond the entry
 HOLD = {"r13": (10, 13), "r48": (10, 48), "targets": (10, 21), "c13": (5, 13), "c21": (5, 21), "lv_c13": (5, 13),
         "lv1_c13": (5, 13)}                                               # (ribbon minutes, EMA) a close under it exits
 
@@ -112,6 +115,7 @@ def setups(sym, or_minutes=15, use_1m=True):
                 "relvol": or_vol / (sum(hist) / 14) if sum(hist) else 0, "atr": atr,
                 "or_hi": s * h if s > 0 else -l, "or_lo": s * l if s > 0 else -h,
                 "levels": sorted(s * lv[f * s] for f in SATY_FIBS[:6]), "trigger": s * lv[0.236 * s],
+                "all_levels": sorted(s * x for f, x in lv.items() if abs(f) <= 1.0),
                 "bars": [(t, b if s > 0 else neg(b)) for t, b in bars], "step": dt.timedelta(minutes=step),
                 "ribbon": [(t, {k: s * v[k] for k in (8, 13, 21, 34, 48)}, s * cl) for t, v, cl in ribbon],
                 "ribbon5": [(t, {k: s * v[k] for k in (8, 13, 21, 34, 48)}, s * cl) for t, v, cl in ribbon5],
@@ -188,13 +192,20 @@ def simulate(s, p):
                     stop = below[-1] if below else s["or_lo"]
                 stop = min(stop, entry - 0.05 * s["atr"])       # never tighter than 5% ATR
                 targets = [x for x in s["levels"] if x > entry + 0.05 * s["atr"]][:n_tp]
+                frac = 1 / (n_tp + 1)
+                if p["exit"] in FULL_TP:
+                    beyond = [x for x in s["all_levels"] if x > entry + 0.05 * s["atr"]]
+                    i = FULL_TP[p["exit"]]
+                    targets, frac = (beyond[i:i + 1], 1.0) if len(beyond) > i else ([], 1.0)
                 opened, a = t, entry
             if min(a, z) <= stop:
                 fills.append((min(stop, a), left, "stop"))
                 return finish(s, entry, stop, fills, opened, t)
             while targets and max(a, z) >= targets[0]:
-                fills.append((max(targets.pop(0), a), 1 / (n_tp + 1), "target"))
-                left -= 1 / (n_tp + 1)
+                fills.append((max(targets.pop(0), a), frac, "target"))
+                left -= frac
+                if left <= 1e-9:
+                    return finish(s, entry, stop, fills, opened, t)
         if entry is None:
             if not armed and b.c < level:
                 armed = True
@@ -257,7 +268,7 @@ def main(argv=None):
     ap.add_argument("--confirm", choices=GRID["confirm"] + GRID5["confirm"][1:], default="none")
     ap.add_argument("--rebreak", action="store_true")
     ap.add_argument("--stop", choices=GRID5["stop"], default="atr10")
-    ap.add_argument("--exit", choices=GRID["exit"] + GRID5["exit"][1:], default="eod")
+    ap.add_argument("--exit", choices=GRID["exit"] + GRID5["exit"][1:] + list(FULL_TP), default="eod")
     ap.add_argument("--relvol", action="store_true")
     ap.add_argument("--last", default="12:00", help="no new entries from this time")
     ap.add_argument("--slip", type=float, default=0.01, help="dollars a share, each fill")

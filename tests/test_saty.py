@@ -217,6 +217,19 @@ class SatyTests(unittest.TestCase):
         self.assertEqual(t["reason"], "5m close under 13")
         self.assertAlmostEqual(t["r"], (100.7 - 101.0) / 1.0)
 
+    def test_orb_mnq_account(self):
+        from argparse import Namespace
+        from bot.orb_mnq import account
+        o = Namespace(balance=1000.0, risk=0.10, margin=1000.0, cost=2.7)
+        lose = {"risk": 1.0, "r": -1.0}                                   # $1 QQQ stop = 41.1 MNQ points = $82.20
+        taken, eq, dd, skipped = account([lose, lose], o)
+        self.assertEqual(len(taken), 1)                                   # under $1,000 margin after one loss: done
+        self.assertAlmostEqual(eq, 1000 - 82.2 - 2.7)
+        o.margin = 100.0
+        taken, eq, dd, skipped = account([lose, lose, lose], o)
+        self.assertEqual((len(taken), skipped), (2, 1))                   # third: one contract risks > 10% of equity
+        self.assertEqual(account([{"risk": 2.0, "r": 1.0}], o)[3], 1)     # $164 stop on $1,000 at 10%: skipped
+
 
 if __name__ == "__main__":
     unittest.main()
