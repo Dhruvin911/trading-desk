@@ -195,6 +195,34 @@ modeled.
 $170 (HIMS) to $10,500 (SNDK) per contract. Winning stock trades only make +0.7% in the option
 (the targets are close and the spread costs ~5% a round trip); losing ones lose 9.7%.
 
+### Tuning the share trades (17 tickers), walk-forward
+Each idea judged on Mar–Jul (both Mar–May and Jun–Jul, normal and 2× slippage), the survivors
+combined, checked on August, then run once on Sep–Oct. Average R a trade:
+
+| Idea (Mar–Jul) | Mar–May | Jun–Jul | 2× slip | |
+|---|---|---|---|---|
+| Baseline | −0.062 | −0.114 | −0.192 | |
+| Stop under the 34 / the 48 (`--stop-mode e34/e48`) | −0.058 / −0.056 | −0.100 / −0.093 | −0.166 / −0.150 | 48 passes |
+| Stop under the call trigger | −0.098 | −0.098 | −0.195 | fails |
+| Limit entries on the pullback (`--entry-order limit`) | −0.093 | −0.139 | −0.207 | fails |
+| Golden-gate context only (`--a-only`) | −0.033 | −0.110 | −0.165 | passes |
+| Super-bullish stack (`--super-stack`) | −0.076 | −0.095 | −0.180 | fails |
+| 10m squeeze momentum | −0.063 | −0.129 | −0.195 | fails |
+| SPY ribbon bullish / + VIX (`--market spy/spy_vix`) | −0.100 / −0.178 | −0.123 / −0.113 | −0.213 / −0.254 | fail |
+| Mornings only (`--window morning`) | −0.036 | −0.097 | −0.160 | passes |
+| First target ≥ 1R (`--min-target-r 1`) | −0.020 | −0.083 | −0.159 | passes |
+| **A + mornings + target ≥ 1R** (chosen) | +0.060 | +0.006 | −0.065 | |
+| All four passing ideas (runner-up) | +0.023 | −0.036 | −0.073 | |
+
+| Out of sample | August | Sep–Oct | Sep–Oct, 2× slip |
+|---|---|---|---|
+| Baseline | −0.089 (229) | −0.180 (463) | −0.283 |
+| Chosen: A + mornings + target ≥ 1R | −0.004 (121) | −0.050 (286) | −0.161 |
+| Runner-up: all four | +0.137 (81) | +0.019 (201) | −0.066 |
+
+Swing on weekly ATR levels and the daily ribbon (`python3 -m bot.saty_swing`): 51 trades,
+0.00R a trade on Sep 2024 – Jul 2026; August −0.41R (4), Sep–Oct −0.23R (5).
+
 ### SPY same-day (0DTE) options, as in Saty's daily plans: `python3 -m bot.saty_0dte`
 The playbook on SPY in both directions (the bearish side runs the same rules on SPY reflected
 around a price: put trigger, short golden gate, Vomy, bear flags). Strike ~1 ATR level out of the

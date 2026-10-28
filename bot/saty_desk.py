@@ -121,6 +121,32 @@ def in_windows(t, windows):
     return any(a <= t < b for a, b in windows)
 
 
+def market_context(data_dir="data"):
+    """SPY's 10-minute ribbon (extended hours) and the VIX, for the market filter."""
+    import bisect
+    from bot.saty_0dte import Vix
+    rib = ribbon_series(SymbolData(data_dir, "SPY"))
+    return {"times": [r[0] for r in rib], "rib": [r[1] for r in rib], "vix": Vix(), "bisect": bisect, "keys": {}}
+
+
+def market_ok(opts, when):
+    """SPY's 10m ribbon stacked bullish at `when`; with market "spy_vix" also VIX under its key level."""
+    m = opts.market_data
+    i = m["bisect"].bisect_right(m["times"], when) - 1
+    if i < 0:
+        return False
+    e = m["rib"][i]
+    if not (e[8] > e[13] > e[21] > e[34] > e[48]):
+        return False
+    if opts.market == "spy_vix":
+        day = when.astimezone(ET).date()
+        if day not in m["keys"]:
+            m["keys"][day] = m["vix"].key_level(day)
+        key, now = m["keys"][day], m["vix"].at(when)
+        return key is not None and now is not None and now < key
+    return True
+
+
 def mirrored(d, center=None):
     """The same symbol reflected around `center` (price -> 2*center - price, highs and lows swapped).
     Running the long-only rules on it gives the bearish mirror of every setup (put trigger, short
@@ -140,6 +166,8 @@ def run_symbol(data_dir, sym, cfg, opts, data=None):
     d = data or SymbolData(data_dir, sym)
     rib = ribbon_series(d)
     windows = [(dt.time.fromisoformat(w["start"]), dt.time.fromisoformat(w["end"])) for w in cfg["entry_windows"]]
+    if getattr(opts, "window", "config") == "morning":
+        windows = [(dt.time(9, 40), dt.time(11, 30))]
     flatten = dt.time.fromisoformat(cfg["flatten_at"])
     min_rr = cfg["risk"]["min_reward_risk"]
     max_range_a, max_range_b = 0.9, cfg["strategy"].get("max_range_used", 0.7)
@@ -201,13 +229,16 @@ def run_symbol(data_dir, sym, cfg, opts, data=None):
             end = t + step
             lt = end.astimezone(ET).time()
             # fills / stops / targets on this bar
-            if armed and pos is None and b.h >= armed["entry"]:
-                fill = max(armed["entry"], b.o) * (1 + slip)
-                if fill - armed["entry"] <= 0.5 * (armed["entry"] - armed["stop"]):
+            limit_fill = armed and pos is None and armed.get("limit") and b.l <= armed["entry"]
+            if limit_fill or (armed and pos is None and not armed.get("limit") and b.h >= armed["entry"]):
+                fill = min(armed["entry"], b.o) if limit_fill else max(armed["entry"], b.o) * (1 + slip)
+                if limit_fill and fill <= armed["stop"]:
+                    fill = None                                   # gapped through the stop: no trade
+                if fill is not None and fill - armed["entry"] <= 0.5 * (armed["entry"] - armed["stop"]):
                     pos = Trade(sym, day, armed["setup"], fill, armed["stop"], armed["targets"], t)
                     n_today += 1
                 armed = None
-                same_bar_green = b.c >= b.o
+                same_bar_green = b.c >= b.o and not limit_fill    # a dip-buy's low may come after it fills
             else:
                 same_bar_green = False
             if pos and pos.closed is None:
@@ -342,6 +373,18 @@ def run_symbol(data_dir, sym, cfg, opts, data=None):
                     setup, base = "C-ivomy", cb.l
             if setup is None or not squeeze_ok(opts.squeeze, hist10):
                 continue
+            if getattr(opts, "a_only", False) and not setup.startswith("A"):
+                continue
+            if getattr(opts, "super_stack", False) and not (
+                    last10.c > e[8] > e[13] > e[21] > e[34] > e[48] and len(hist10) >= 2 and e[8] > hist10[-2][0][8]):
+                continue
+            if getattr(opts, "market", "none") != "none" and not market_ok(opts, end):
+                continue
+            mode = getattr(opts, "stop_mode", "pullback")
+            if not setup.startswith("C") and mode != "pullback":
+                base = min(cb.l, {"e34": e[34], "e48": e[48], "trigger": trigger}[mode])
+            if getattr(opts, "entry_order", "stop") == "limit":
+                entry = round(cb.c, 2)
             stop = round(base - max(0.01, 0.05 * a_c), 2)
             risk = entry - stop
             if risk <= 0 or risk < 0.001 * entry:
@@ -358,6 +401,7 @@ def run_symbol(data_dir, sym, cfg, opts, data=None):
                 tg.append((last[0], last[1], 1 / 3))
             tg[-1] = (tg[-1][0], tg[-1][1], 1.0)                      # whatever is left
             armed = {"setup": setup, "entry": entry, "stop": stop, "targets": tg,
+                     "limit": getattr(opts, "entry_order", "stop") == "limit",
                      "expires": end + 2 * (dt.timedelta(minutes=3) if use_1m else dt.timedelta(minutes=5))}
         if pos:
             pos.sell(fine[-1][1].c * (1 - slip), pos.left, fine[-1][0], "end of data")
@@ -412,8 +456,19 @@ def main(argv=None):
                     help="TTM squeeze filter on the daily bars up to the previous close")
     ap.add_argument("--squeeze", choices=["none", "momentum", "fired", "on_or_fired"], default="none",
                     help="TTM squeeze filter on the 10m bars (momentum up; fired recently; in or just out)")
+    ap.add_argument("--stop-mode", choices=["pullback", "e34", "e48", "trigger"], default="pullback",
+                    help="stop under the pullback and the 21 (default), or under the 34, the 48 or the call trigger")
+    ap.add_argument("--entry-order", choices=["stop", "limit"], default="stop",
+                    help="buy-stop above the signal candle (default) or a limit at its close")
+    ap.add_argument("--a-only", action="store_true", help="only setups in the golden-gate context (A)")
+    ap.add_argument("--super-stack", action="store_true", help="only with close > 8 > 13 > 21 > 34 > 48, the 8 rising")
+    ap.add_argument("--market", choices=["none", "spy", "spy_vix"], default="none",
+                    help="only while SPY's 10m ribbon is stacked bullish (and VIX is under its key level)")
+    ap.add_argument("--window", choices=["config", "morning"], default="config", help="morning = 9:40-11:30 ET only")
     ap.add_argument("--trades")
     opts = ap.parse_args(argv)
+    if opts.market != "none":
+        opts.market_data = market_context(opts.data)
     cfg = json.loads((ROOT / "desk" / "config.json").read_text())
     trades = []
     for sym in opts.symbols.split(","):
