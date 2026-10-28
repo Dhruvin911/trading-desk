@@ -113,12 +113,22 @@ class SatyTests(unittest.TestCase):
         cfg = json.loads((ROOT / "desk" / "config.json").read_text())
         opts = Namespace(start=dt.date(2026, 10, 27), end=dt.date(2026, 10, 27), slip=0.0003, exit13="always",
                          ivomy=True, max_per_symbol=2, min_target_r=0.0,
-                         entries=["pullback", "retest", "break", "orb", "flag"])
+                         entries=["pullback", "retest", "break", "orb", "flag"], squeeze="none", daily_squeeze="none")
         trades = run_symbol(str(ROOT / "data"), "RKLB", cfg, opts)
         self.assertTrue(trades)
         for t in trades:
             self.assertEqual(t["date"], "2026-10-27")
             self.assertGreater(t["entry"], t["stop"])
+
+    def test_ttm_squeeze(self):
+        from bot.saty_desk import ttm_squeeze
+        flat = [100 + 0.01 * (i % 2) for i in range(40)]                 # tight coil
+        on, mom = ttm_squeeze(flat, [x + 0.5 for x in flat], [x - 0.5 for x in flat], [1.0] * 40)
+        self.assertTrue(on)
+        up = [100 + i for i in range(40)]                                # strong trend: bands wide, momentum up
+        on, mom = ttm_squeeze(up, [x + 0.2 for x in up], [x - 0.2 for x in up], [1.0] * 40)
+        self.assertFalse(on)
+        self.assertGreater(mom, 0)
 
 
 if __name__ == "__main__":

@@ -168,6 +168,15 @@ transcripts arrived, from the indicator code alone.
 | Zero costs | 1416 | 53% | +0.03R |
 | Double slippage | 1409 | 31% | −0.20R |
 
+TTM squeeze filters (`--squeeze`, 10-minute bars; `--daily-squeeze`, daily bars), all entry types:
+
+| Filter | Mar–Aug | Sep–Oct hold-out |
+|---|---|---|
+| none | −0.09R (1399) | −0.15R (461) |
+| 10m squeeze momentum up | −0.08R (1010) | −0.12R (326) |
+| 10m fired up within the hour | −0.11R (376) | not run |
+| daily squeeze momentum up | −0.05R (388) | −0.29R (144) |
+
 With all of Saty's entry types (pullback, break and hold, retest, opening-range breakout, bull
 flag; `--entries`), the playbook's current default:
 

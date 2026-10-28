@@ -32,6 +32,14 @@ bearish setups (put trigger breaks, Vomy) mean "stay out" or "exit".
 - Conviction arrow = 13 EMA crossing the 48. Not a buy signal by itself: a pullback usually
   follows it.
 
+## Squeeze (TTM / Saty's Squeeze Pro) on the 10-minute chart: an "ideal", not a requirement
+- **Squeeze on**: the Bollinger Bands (20, 2) are inside the Keltner Channels (20, 1.5 × ATR):
+  price is coiling. **Fired**: the bands expand back outside the channels.
+- **Momentum up**: the squeeze momentum is above zero and rising.
+- A long setup with momentum up, or one that just fired up, gets **one more confidence point**.
+  Momentum down lowers it by one. In the backtest this helped a little (about +0.01 to +0.03R a
+  trade) but didn't make the playbook profitable; a daily-chart squeeze filter didn't hold up.
+
 ## Entries: 3-minute candles, "Time Warp" (3-minute candles, 10-minute ribbon)
 Build 3-minute candles from 1-minute bars from 9:30 ET (9:30, 9:33, ...). Use completed candles only.
 Compare them with the 10-minute ribbon values.

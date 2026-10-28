@@ -30,14 +30,63 @@ ROOT = Path(__file__).resolve().parent.parent
 FIBS_UP = (0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236)
 
 
+def ttm_squeeze(closes, highs, lows, trs, n=20, bb_mult=2.0, kc_mult=1.5):
+    """TTM squeeze on the last `n` bars: (squeeze_on, momentum). Squeeze on = Bollinger Bands
+    (n, bb_mult) inside Keltner Channels (n, kc_mult x ATR); momentum = linear regression value, at
+    the last bar, of close - mean(midpoint of the n-bar range, n-bar SMA) - as in John Carter's TTM
+    Squeeze and Saty's Squeeze Pro (mid compression)."""
+    if len(closes) < 2 * n:
+        return None, None
+    c = closes[-n:]
+    sma = sum(c) / n
+    std = (sum((x - sma) ** 2 for x in c) / n) ** 0.5
+    atr = sum(trs[-n:]) / n
+    on = sma + bb_mult * std < sma + kc_mult * atr and sma - bb_mult * std > sma - kc_mult * atr
+    vals = []
+    for i in range(n):
+        j = len(closes) - n + i
+        hh, ll = max(highs[j - n + 1:j + 1]), min(lows[j - n + 1:j + 1])
+        sm = sum(closes[j - n + 1:j + 1]) / n
+        vals.append(closes[j] - ((hh + ll) / 2 + sm) / 2)
+    xm, ym = (n - 1) / 2, sum(vals) / n
+    slope = sum((i - xm) * (v - ym) for i, v in enumerate(vals)) / sum((i - xm) ** 2 for i in range(n))
+    return on, ym + slope * (n - 1 - xm)
+
+
 def ribbon_series(d):
-    """[(close_time_utc, {ema: value}, 10m bar)] over every 5m bar, all sessions, carried across days."""
+    """[(close_time_utc, {ema: value, "sq_on": bool, "mom": float}, 10m bar)] over every 5m bar,
+    all sessions, carried across days."""
     e = {n: EMA(n) for n in (8, 13, 21, 34, 48)}
     out = []
+    closes, highs, lows, trs = [], [], [], []
     rows = [(t, b) for day in sorted(d.m5) for t, b, _ in d.m5[day]]
     for _, close_t, b10 in bars_by_period(rows, 10):
-        out.append((close_t, {n: x.update(b10.c) for n, x in e.items()}, b10))
+        trs.append(b10.h - b10.l if not closes else max(b10.h - b10.l, abs(b10.h - closes[-1]), abs(b10.l - closes[-1])))
+        closes.append(b10.c)
+        highs.append(b10.h)
+        lows.append(b10.l)
+        v = {n: x.update(b10.c) for n, x in e.items()}
+        v["sq_on"], v["mom"] = ttm_squeeze(closes[-60:], highs[-60:], lows[-60:], trs[-60:])
+        out.append((close_t, v, b10))
     return out
+
+
+def squeeze_ok(mode, hist10):
+    """Squeeze filter on the 10m bars so far (hist10: [(ribbon values, close)], newest last)."""
+    if mode == "none":
+        return True
+    if len(hist10) < 7 or hist10[-1][0]["mom"] is None or hist10[-2][0]["mom"] is None:
+        return False
+    now, prev = hist10[-1][0], hist10[-2][0]
+    mom_up = now["mom"] > 0 and now["mom"] >= prev["mom"]
+    recent_on = any(h[0]["sq_on"] for h in hist10[-7:-1])
+    if mode == "momentum":
+        return mom_up
+    if mode == "fired":            # squeeze released within the last hour with momentum up
+        return mom_up and recent_on and not now["sq_on"]
+    if mode == "on_or_fired":      # in a squeeze, or just fired, with momentum up
+        return mom_up and (now["sq_on"] or recent_on)
+    raise ValueError(mode)
 
 
 class Trade:
@@ -90,6 +139,17 @@ def run_symbol(data_dir, sym, cfg, opts):
         if len(prior) < 20:
             continue
         pdc, atr = prior[-1][4], wilder_atr(prior)
+        if opts.daily_squeeze != "none":
+            dc, dh, dl = [r[4] for r in prior[-60:]], [r[2] for r in prior[-60:]], [r[3] for r in prior[-60:]]
+            dtr = [dh[0] - dl[0]] + [max(h - l, abs(h - pc0), abs(l - pc0)) for h, l, pc0 in zip(dh[1:], dl[1:], dc)]
+            d_on, d_mom = ttm_squeeze(dc, dh, dl, dtr)
+            p_on, p_mom = ttm_squeeze(dc[:-1], dh[:-1], dl[:-1], dtr[:-1])
+            hist_on = [ttm_squeeze(dc[:k], dh[:k], dl[:k], dtr[:k])[0] for k in range(len(dc) - 6, len(dc))]
+            mom_up = d_mom is not None and p_mom is not None and d_mom > 0 and d_mom >= p_mom
+            ok = {"momentum": mom_up, "fired": mom_up and any(hist_on[:-1]) and not d_on,
+                  "on_or_fired": mom_up and (d_on or any(hist_on[:-1]))}[opts.daily_squeeze]
+            if not ok:
+                continue
         lv = saty_levels(pdc, atr)
         trigger, gate, full = lv[0.236], lv[0.382], lv[1.0]
         m1 = [(t, b) for t, b, _ in d.m1.get(day, []) if RTH_OPEN <= t.time() < RTH_CLOSE]
@@ -230,7 +290,7 @@ def run_symbol(data_dir, sym, cfg, opts):
                 tested48 = last10.h >= e[48]
                 if was_bear and tested48 and cb.l <= e[13] + tol and cb.c > e[13] and cb.c > e[8]:
                     setup, base = "C-ivomy", cb.l
-            if setup is None:
+            if setup is None or not squeeze_ok(opts.squeeze, hist10):
                 continue
             stop = round(base - max(0.01, 0.05 * a_c), 2)
             risk = entry - stop
@@ -293,6 +353,10 @@ def main(argv=None):
     ap.add_argument("--min-target-r", type=float, default=0.0,
                     help="scale-out levels must be at least this many R above the entry")
     ap.add_argument("--desk-caps", action="store_true")
+    ap.add_argument("--daily-squeeze", choices=["none", "momentum", "fired", "on_or_fired"], default="none",
+                    help="TTM squeeze filter on the daily bars up to the previous close")
+    ap.add_argument("--squeeze", choices=["none", "momentum", "fired", "on_or_fired"], default="none",
+                    help="TTM squeeze filter on the 10m bars (momentum up; fired recently; in or just out)")
     ap.add_argument("--trades")
     opts = ap.parse_args(argv)
     cfg = json.loads((ROOT / "desk" / "config.json").read_text())
