@@ -113,6 +113,7 @@ def to_option(t, kind, center, vix, o):
     n = int(o.max_cost // (cost * 100))
     pnl, sold, cum = -cost * 100 * n, 0, 0.0
     fills = json.loads(t["fills"])
+    out_fills = []
     for i, (ts, px, frac, reason) in enumerate(fills):
         cum += frac
         target = n if i == len(fills) - 1 else min(n, round(cum * n))
@@ -123,11 +124,13 @@ def to_option(t, kind, center, vix, o):
         v = price(kind, real(px), k, when, vix.at(when) or v0, o)
         pnl += max(0.0, v - half(v)) * 100 * q
         sold += q
+        out_fills.append((when.astimezone(ET).strftime("%H:%M"), round(real(px), 2), q, round(max(0.0, v - half(v)), 2), reason))
     return {"date": t["date"], "symbol": "SPY", "side": kind, "setup": t["setup"], "entry_time": t["entry_time"],
             "exit_time": t["exit_time"], "spy_entry": round(s0, 2), "strike": k, "vix": v0,
             "premium": round(cost, 2), "contracts": n, "cost_usd": round(cost * 100 * n, 2),
             "pnl_usd": round(pnl, 2), "return_pct": round(100 * pnl / (cost * 100 * n), 1),
-            "stock_r": t["r"], "exit_reason": t["exit_reason"]}
+            "stock_r": t["r"], "exit_reason": t["exit_reason"], "stop": round(real(t["stop"]), 2),
+            "fills": json.dumps(out_fills)}
 
 
 def main(argv=None):
