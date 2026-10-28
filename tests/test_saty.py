@@ -168,6 +168,23 @@ class SatyTests(unittest.TestCase):
         self.assertEqual((entry, exit_, why), (101.0, 100.5, "stop"))
         self.assertIsNone(day_trade(down, 1, 102.0, 0.5, step))           # never reached the level
 
+    def test_orb_saty_simulate(self):
+        from bot.orb_saty import simulate
+        t0 = dt.datetime(2026, 10, 27, 9, 45, tzinfo=ZoneInfo("America/New_York"))
+        step = dt.timedelta(minutes=5)
+        bars = [(t0, Bar(t0, 100.0, 101.5, 99.9, 101.4, 1)), (t0 + step, Bar(t0 + step, 101.4, 104.0, 101.3, 103.5, 1))]
+        rib = [(t0 - step, {8: 100.5, 13: 100.3, 21: 100.0, 34: 99.5, 48: 99.0}, 100.8)]
+        s = {"symbol": "X", "date": t0.date(), "side": 1, "or_dir": 1, "relvol": 2.0, "atr": 5.0, "or_hi": 101.0,
+             "or_lo": 99.0, "levels": [101.18, 101.91, 102.5, 103.09, 103.93, 105.0], "trigger": 101.18,
+             "bars": bars, "step": step, "ribbon": rib}
+        p = {"direction": "candle", "relvol": True, "entry": "trigger", "confirm": "stack", "stop": "atr10",
+             "exit": "eod", "last": "12:00"}
+        t = simulate(s, p)                                               # buy-stop at the call trigger, held to the close
+        self.assertAlmostEqual(t["entry"], 101.18)
+        self.assertAlmostEqual(t["r"], (103.5 - 101.18) / 0.5)
+        rib[0][1][8] = 99.0                                              # ribbon not stacked: no trade
+        self.assertIsNone(simulate(s, p))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -334,3 +334,27 @@ Stop sensitivity (not tuned, the paper's 10% kept): 5% ATR +1.05R, 20% ATR +0.16
 Caveats: 8 months of a bull market; our tickers were chosen after they ran (SNDK, PLTR give half
 the R); 10% ATR stops are tight, so real fills matter more than in a backtest; a $1,000 margin
 account can't short and hits the 3-day-trade limit (cash account: one round trip a day settles T+1).
+
+## ORB + Saty ATR levels + Pivot Ribbon - `python3 -m bot.orb_saty --grid [--or-minutes 5]`
+
+288 combinations: entry (range break / must also clear the trigger / first ATR level beyond the
+range) x 10m ribbon confirmation (none / 8>21 / over the 34-48 cloud / fully stacked) x stop (10%
+ATR / range middle / ATR level below) x exit (16:00 / 10m close under 13 / under 48 / thirds at
+the next two levels) x relative-volume filter. 17 tickers, $0.01/share slippage each fill.
+Build Mar 9 - Jul 31, check Aug, hold-out Sep 1 - Oct 27; R per trade:
+
+| version | build | check | hold-out |
+|---|---|---|---|
+| 15m ORB, paper rules + relvol | +0.23 (461) | +0.60 (75) | -0.11 (186) |
+| 15m best on build: trigger + cloud + level stop | +0.45 (345) | +0.72 (57) | -0.33 (128) |
+| 5m ORB, paper rules + relvol | +0.49 (473) | +0.45 (81) | +0.29 (209) |
+| 5m best on build: trigger + fully stacked ribbon | +0.65 (228) | +0.39 (40) | -0.10 (98) |
+| 5m + ribbon 8>21 | +0.46 (297) | +0.76 (57) | +0.40 (123) |
+| 5m + ribbon 8>21, entries by 10:30 | +0.53 (285) | +0.85 (51) | +0.40 (115) |
+| 5m + ribbon 8>21, $0.03 slippage | +0.42 | +0.71 | +0.35 |
+
+Verdict: the 15-minute range loses in the hold-out with every strong filter; the strict build
+winners overfit in both. The plain 5-minute paper rules hold in all three periods; the 8>21 ribbon
+filter improved check and hold-out but was picked after seeing them, so it is a lead, not proof.
+Across all combinations: relative volume helps most; ATR-level entries beyond the range, the
+range-middle stop and the 13-EMA exit hurt; holding to the close beats every ribbon exit.
