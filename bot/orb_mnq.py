@@ -1,18 +1,20 @@
-"""15-minute ORB with Saty ATR levels on Micro Nasdaq futures (MNQ), in a $1,000 account.
+"""15-minute ORB with Saty ATR levels on micro index futures (MNQ, MES), in a $1,000 account.
 
-    python3 -m bot.orb_mnq                       # every combination, build Mar-Jul, check Aug, Sep-Oct
+    python3 -m bot.orb_mnq                       # MNQ: every combination, build Mar-Jul, check Aug, Sep-Oct
+    python3 -m bot.orb_mnq --contract MES
     python3 -m bot.orb_mnq --one --entry trigger --stop level --exit tp1 --trades out.csv
 
-No futures history is available here, so QQQ stands in: MNQ points = QQQ price x 41.1 (NDX / QQQ
-at the month ends Apr-Sep 2026 was 41.08-41.11), $2 a point. ATR levels, the opening range and the
-ribbon are QQQ's (regular-hours close as the previous close); relative volume is QQQ's.
+No futures history is available here, so the ETF stands in: MNQ points = QQQ price x 41.1 (NDX /
+QQQ at the month ends Apr-Sep 2026 was 41.08-41.11), $2 a point; MES points = SPY x 10.03 (SPX /
+SPY 10.02-10.04), $5 a point. ATR levels, the opening range and the ribbon are the ETF's
+(regular-hours close as the previous close); relative volume is the ETF's.
 Rules come from bot.orb_saty: 15m range (9:30-9:45) sets the side (--direction candle) or either
 break counts (both); entry orb / trigger / level; 10m ribbon confirm none / fast; stop atr10 /
 or_mid / level; exit tp1 / tp2 (everything at the next / second ATR level), eod, r13 (10m close
 under the 13 EMA); entries until 12:00.
 Account: contracts = how many keep the stop loss within --risk of equity, no more than equity /
 --margin; no trade if one contract risks more than that. Costs per contract per round trip:
---fees ($0.50 commission + exchange fees a side) and one tick ($0.50) of slippage each side.
+--fees ($0.50 commission + exchange fees a side) and one tick (0.25 point) of slippage each side.
 """
 import argparse
 import itertools
@@ -22,7 +24,7 @@ from multiprocessing import Pool
 import bot.orb_saty as orb_saty
 from bot.orb_saty import PERIODS, load, simulate
 
-RATIO, POINT = 41.1, 2.0
+CONTRACTS = {"MNQ": ("QQQ", 41.1, 2.0), "MES": ("SPY", 10.03, 5.0)}    # ETF, index points per ETF dollar, $ a point
 GRID = {"direction": ["candle", "both"], "entry": ["orb", "trigger", "level"], "confirm": ["none", "fast"],
         "stop": ["atr10", "or_mid", "level"], "exit": ["tp1", "tp2", "eod", "r13"], "relvol": [False, True]}
 
@@ -30,12 +32,12 @@ GRID = {"direction": ["candle", "both"], "entry": ["orb", "trigger", "level"], "
 def account(trades, o):
     eq, peak, dd, taken, skipped = o.balance, o.balance, 0.0, [], 0
     for t in trades:
-        risk_usd = t["risk"] * RATIO * POINT + o.cost             # one contract, stop hit
+        risk_usd = t["risk"] * o.ratio * o.point + o.cost         # one contract, stop hit
         n = min(int(o.risk * eq // risk_usd), int(eq // o.margin))
         if n < 1:
             skipped += 1
             continue
-        pnl = n * (t["r"] * t["risk"] * RATIO * POINT - o.cost)
+        pnl = n * (t["r"] * t["risk"] * o.ratio * o.point - o.cost)
         eq += pnl
         peak, dd = max(peak, eq), min(dd, eq - peak)
         taken.append({**t, "contracts": n, "pnl_usd": round(pnl, 2), "equity": round(eq, 2)})
@@ -51,7 +53,7 @@ def evaluate(args):
     for name, (a, b) in PERIODS.items():
         ts = [t for t in trades if a <= t["date"] <= b]
         taken, eq, dd, skipped = account(ts, o)                   # each period from a fresh $1,000
-        pts = [t["r"] * t["risk"] * RATIO - o.cost / POINT for t in ts]         # net of fees and slippage
+        pts = [t["r"] * t["risk"] * o.ratio - o.cost / o.point for t in ts]     # net of fees and slippage
         out[name] = {"n": len(ts), "pts": sum(pts) / max(1, len(pts)), "end": eq, "dd": dd,
                      "win": sum(x > 0 for x in pts) / max(1, len(pts)), "taken": len(taken)}
     taken, eq, dd, _ = account(trades, o)
@@ -67,6 +69,7 @@ def fmt(p, r):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--contract", choices=list(CONTRACTS), default="MNQ")
     ap.add_argument("--balance", type=float, default=1000.0)
     ap.add_argument("--risk", type=float, default=0.10, help="most of equity to lose at the stop")
     ap.add_argument("--margin", type=float, default=1000.0, help="equity needed per contract (check Robinhood)")
@@ -81,10 +84,11 @@ def main(argv=None):
     ap.add_argument("--top", type=int, default=12)
     ap.add_argument("--trades")
     o = ap.parse_args(argv)
-    o.cost = o.fees + 2 * 0.25 * POINT                              # fees + one tick each side
-    load(["QQQ"], 15, True)
-    print(f"QQQ as MNQ (x{RATIO}, ${POINT:.0f}/pt), ${o.balance:,.0f}, risk {o.risk:.0%}, ${o.margin:,.0f} per contract; "
-          "columns per period (fresh $1,000 each): trades, avg MNQ points/trade, win, end")
+    etf, o.ratio, o.point = CONTRACTS[o.contract]
+    o.cost = o.fees + 2 * 0.25 * o.point                            # fees + one tick each side
+    load([etf], 15, True)
+    print(f"{etf} as {o.contract} (x{o.ratio}, ${o.point:.0f}/pt), ${o.balance:,.0f}, risk {o.risk:.0%}, ${o.margin:,.0f} per "
+          f"contract; columns per period (fresh $1,000 each): trades, avg {o.contract} points/trade, win, end")
     if o.one:
         p = {"last": o.last, **{k: getattr(o, k) for k in GRID}}
         p, r, taken = evaluate((p, o))

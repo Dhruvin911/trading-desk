@@ -220,7 +220,7 @@ class SatyTests(unittest.TestCase):
     def test_orb_mnq_account(self):
         from argparse import Namespace
         from bot.orb_mnq import account
-        o = Namespace(balance=1000.0, risk=0.10, margin=1000.0, cost=2.7)
+        o = Namespace(balance=1000.0, risk=0.10, margin=1000.0, cost=2.7, ratio=41.1, point=2.0)
         lose = {"risk": 1.0, "r": -1.0}                                   # $1 QQQ stop = 41.1 MNQ points = $82.20
         taken, eq, dd, skipped = account([lose, lose], o)
         self.assertEqual(len(taken), 1)                                   # under $1,000 margin after one loss: done

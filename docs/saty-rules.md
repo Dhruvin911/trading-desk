@@ -449,3 +449,27 @@ volume): +44 / +63 / +16 points a trade (31 / 5 / 14 trades). In the $1,000 acco
 Verdict: no robust edge on one index with this few trades, and $1,000 is too small for MNQ at
 these stops - one contract is 8-15% of the account a trade. Needs ~$5,000+ to keep a contract
 at 2% risk.
+
+## Same test on MES - `python3 -m bot.orb_mnq --contract MES`
+
+SPY stands in: MES points = SPY x 10.03 (SPX / SPY at the month ends Apr-Sep 2026: 10.02-10.04),
+$5 a point, so $1 of SPY = $50 per contract; SPY's ~$7.5 ATR = ~$375 per contract (MNQ ~$820).
+One contract at a 10% ATR stop risks ~$40 (4% of $1,000), at the range middle ~$75-100. Costs
+$4.20 per contract round trip (fees + a tick each side = 0.84 points).
+
+Grid of 288: positive points/trade in only 9 of 180 on the build (Mar-Jul), 136 in August, 143 in
+the hold-out; every choice averages negative on the build (-1.8 to -4.4 points a trade). Best on
+the build (either break, must clear the trigger, range-middle stop, all out at the next ATR level,
+relative volume): +2.4 / -2.7 / +1.3 points a trade (32 / 7 / 18 trades).
+$1,000 account, margin $100 a contract, 10% risk cap, all eight months:
+
+| version | end | max drawdown |
+|---|---|---|
+| best on build (trigger, range-middle stop, next level) | $1,267 | -$853 |
+| range break, range-middle stop, next level | $1,193 | -$856 |
+| range break, 10% ATR stop, next level | $622 | -$585 |
+| range break, 10% ATR stop, to 16:00 | $335 | -$917 |
+| range break, range-middle stop, second level | $768 | -$630 |
+
+Verdict: MES fits $1,000 better than MNQ (one contract ~4-10% risk), but the 15m ORB has no edge
+on the S&P - the same as SPY in the stock tests (-11R on the paper's rules). Not worth trading.
