@@ -106,6 +106,19 @@ class SatyTests(unittest.TestCase):
         self.assertEqual((t0.minute, close_t.minute), (30, 33))
         self.assertEqual((b.o, b.h, b.l, b.c, b.v), (100, 103, 99, 102.5, 30))
 
+    def test_saty_desk_runs_on_real_day(self):
+        import json
+        from argparse import Namespace
+        from bot.saty_desk import ROOT, run_symbol
+        cfg = json.loads((ROOT / "desk" / "config.json").read_text())
+        opts = Namespace(start=dt.date(2026, 10, 27), end=dt.date(2026, 10, 27), slip=0.0003, exit13="always",
+                         ivomy=True, max_per_symbol=2, min_target_r=0.0)
+        trades = run_symbol(str(ROOT / "data"), "RKLB", cfg, opts)
+        self.assertTrue(trades)
+        for t in trades:
+            self.assertEqual(t["date"], "2026-10-27")
+            self.assertGreater(t["entry"], t["stop"])
+
 
 if __name__ == "__main__":
     unittest.main()

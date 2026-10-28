@@ -155,6 +155,22 @@ transcripts arrived, from the indicator code alone.
 | Same, T1 61.8% / T2 full ATR | −0.16R (159), win 39% | −0.28R (39), win 33% | |
 | Gate touch, no ribbon, all out at 61.8%, zero costs | 0.00R (358), win 40% | +0.02R (98), win 39% | |
 
+### The desk playbook (`strategy.md`), as the agents trade it: `python3 -m bot.saty_desk`
+17 tickers, Mar 9 – Oct 27 2026, setups A + B + C, scale-outs in thirds at ATR levels.
+
+| Version | Trades | Win | Avg R |
+|---|---|---|---|
+| As written, 0.03% slippage per fill | 1420 | 42% | −0.09R |
+| Mar 9 – Sep 11 (5-minute entry candles) | 1128 | 41% | −0.09R |
+| Sep 14 – Oct 27 (3-minute candles, 1-minute fills) | 293 | 45% | −0.10R |
+| With the desk's caps (3 entries a day, 2 open, 2.5R daily stop) | 440 | 46% | −0.09R |
+| 13-EMA exit only after the first scale-out | 1384 | 46% | −0.09R |
+| Zero costs | 1416 | 53% | +0.03R |
+| Double slippage | 1409 | 31% | −0.20R |
+
+Median stop is 0.64% of price, so slippage alone is about 0.09R a trade. Before costs the
+playbook is slightly positive; after them it loses.
+
 The gate trade's stop (38.2% down to the 23.6% trigger) is only 14.6% of the daily ATR, so
 0.03% slippage per fill costs about 0.11R a trade. Ribbon confirmation didn't help it.
 
