@@ -389,3 +389,36 @@ signals were skipped because one contract cost more than $300, and PLTR's 4 trad
 Verdict: the ORB edge per trade (~0.05 ATR) is about what an option's spread and a day of decay
 cost, so the options version is roughly break-even; the guide's filters (tight spreads, no
 earnings, liquid names) are what keep it from losing. Trade this signal in shares.
+
+## 15m ORB + 5-minute ribbon hold + ATR-level take profits - `python3 -m bot.orb_saty --grid5`
+
+Idea: bullish while 5m candles hold the 5m 13 EMA (8/13/21/34/48 on 5m bars, extended hours);
+enter on the 15m opening-range break after the last three 5m closes held the 13; hold while 5m
+closes stay over the 13; take profits at the ATR levels. Grid of 1,152: side from the range
+candle or either break x range break / must clear the trigger x confirmation (none / held the 13 /
+held the 13 with 8>21) x take a later re-break if the first wasn't confirmed x stop (10% ATR /
+range middle / ATR level below / 5m 21 EMA) x exit (16:00 / 5m close under 13 / under 21 / thirds
+at the next two ATR levels then the 13 / half at the next level then the 13 / thirds then 16:00)
+x relative volume. $0.01/share slippage each fill.
+
+Positive: build 1,150 of 1,152, check 906, hold-out (Sep 1 - Oct 27) only 344. The 25 best on the
+build all lose in the hold-out (-0.16 to -0.43R a trade). Average R/trade on the build by choice:
+confirmation none +0.10, held the 13 +0.09; exit 16:00 +0.13, thirds at ATR levels then 16:00
++0.125, 5m close under 21 +0.11, under 13 +0.08, ATR levels then the 13 +0.07; stop ATR level
++0.15, 10% ATR +0.10, 5m 21 EMA +0.07; relative volume +0.13 vs +0.07.
+
+Same rules on the 5m opening range (relative volume, 10% ATR stop):
+
+| version | build | check | hold-out |
+|---|---|---|---|
+| plain, to 16:00 | +0.49 (473) | +0.45 | +0.29 |
+| 10m ribbon 8>21, to 16:00 | +0.46 (297) | +0.76 | +0.40 |
+| held the 5m 13, to 16:00 | +0.25 (203) | +0.99 | +0.14 |
+| held the 5m 13, out on a 5m close under it | +0.25 | +0.88 | +0.07 |
+| held the 5m 13, ATR take profits, rest on the 13 | +0.26 | +0.40 | -0.04 |
+| plain, ATR take profits, rest to 16:00 | +0.51 | +0.37 | +0.17 |
+
+Verdict: the 5m 13 EMA is too close to price. As a filter it drops good breakouts (opening-range
+candles often close under it before the trend starts); as an exit it shakes out of trend days on
+normal pullbacks. ATR-level take profits trim the few big days that pay for the many small stops.
+Keep: 5m range, relative volume, 10m 8>21 ribbon, 10% ATR stop, hold to the close.

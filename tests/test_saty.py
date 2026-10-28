@@ -194,6 +194,29 @@ class SatyTests(unittest.TestCase):
         self.assertNotIn("HIMS", UNIVERSE["spread"])                                         # real spread 11.2% of the mid
         self.assertIn("SPY", UNIVERSE["checklist"])
 
+    def test_orb_saty_5m_ribbon(self):
+        from bot.orb_saty import confirmed, simulate
+        up = {8: 101.0, 13: 100.5, 21: 100.0, 34: 99.5, 48: 99.0}
+        held = [(None, up, 101.0), (None, up, 100.8), (None, up, 101.2)]
+        self.assertTrue(confirmed("hold13", None, held))
+        self.assertFalse(confirmed("hold13", None, held[:2] + [(None, up, 100.4)]))     # a close under the 13
+        self.assertFalse(confirmed("hold13", None, held[:2]))                            # not enough history
+        tz = ZoneInfo("America/New_York")
+        t0 = dt.datetime(2026, 10, 27, 9, 45, tzinfo=tz)
+        step = dt.timedelta(minutes=5)
+        bars = [(t0, Bar(t0, 100.0, 101.5, 99.9, 101.4, 1)), (t0 + step, Bar(t0 + step, 101.4, 101.6, 100.6, 100.7, 1)),
+                (t0 + 2 * step, Bar(t0 + 2 * step, 100.7, 103.0, 100.6, 102.9, 1))]
+        rib5 = [(t0, up, 101.0), (t0 - step, up, 100.8), (t0 - 2 * step, up, 101.2)][::-1]
+        rib5.append((t0 + 2 * step, {8: 101.2, 13: 100.9, 21: 100.5, 34: 100.0, 48: 99.5}, 100.7))  # 9:55 close under 13
+        s = {"symbol": "X", "date": t0.date(), "side": 1, "or_dir": 1, "relvol": 2.0, "atr": 5.0, "or_hi": 101.0,
+             "or_lo": 99.0, "levels": [101.18, 101.91, 102.5, 103.09, 103.93, 105.0], "trigger": 101.18,
+             "bars": bars, "step": step, "ribbon": [], "ribbon5": rib5}
+        p = {"direction": "candle", "relvol": True, "entry": "orb", "confirm": "hold13", "stop": "or_mid",
+             "exit": "c13", "last": "12:00"}
+        t = simulate(s, p)                                                # out on the 5m close under the 13
+        self.assertEqual(t["reason"], "5m close under 13")
+        self.assertAlmostEqual(t["r"], (100.7 - 101.0) / 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
