@@ -113,7 +113,8 @@ class SatyTests(unittest.TestCase):
         cfg = json.loads((ROOT / "desk" / "config.json").read_text())
         opts = Namespace(start=dt.date(2026, 10, 27), end=dt.date(2026, 10, 27), slip=0.0003, exit13="always",
                          ivomy=True, max_per_symbol=2, min_target_r=0.0,
-                         entries=["pullback", "retest", "break", "orb", "flag"], squeeze="none", daily_squeeze="none")
+                         entries=["pullback", "retest", "break", "trendline", "orb", "flag"], squeeze="none", daily_squeeze="none",
+                         sr_levels=True, structure_exit=True)
         trades = run_symbol(str(ROOT / "data"), "RKLB", cfg, opts)
         self.assertTrue(trades)
         for t in trades:

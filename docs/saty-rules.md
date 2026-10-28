@@ -168,6 +168,33 @@ transcripts arrived, from the indicator code alone.
 | Zero costs | 1416 | 53% | +0.03R |
 | Double slippage | 1409 | 31% | −0.20R |
 
+Trend lines and classic technical analysis (all on by default): a trend-line break entry (a close
+through a falling line drawn across the day's last two lower swing highs), the previous day's high
+and the premarket high as extra break/retest levels, and Saty's structure exit (a lower swing low
+after a higher swing high). Mar–Aug: −0.09R → −0.08R a trade (1389 trades); trend-line entries
+alone: 14 trades, −0.32R.
+
+### Options in a $1,000 account: `python3 -m bot.saty_options`
+Every playbook trade replayed with calls: first strike above the price (at most two target levels
+up), first Friday at least 4 days out, at most $150 premium and $30 loss at the technical stop per
+trade, half-spread 2.5% of premium (≥ $0.02) per fill, PDT limit of 3 day trades in 5 days.
+Black-Scholes with implied vol = 1.3 × 20-day realized vol (RKLB's real Oct 30 calls on Oct 27
+fit about 1.4×). Robinhood keeps no intraday history for expired contracts, so the prices are
+modeled.
+
+| Version | Option trades | Win | Result on $1,000 |
+|---|---|---|---|
+| 4 days to expiry, $150 cap | 32 | 19% | −$150 |
+| 2 days | 58 | 16% | −$384 |
+| 1 day | 67 | 21% | −$310 |
+| $250 cap, $40 risk | 71 | 23% | −$465 |
+| Cash account (no PDT, next-day settlement) | 40 | 20% | −$176 |
+| Every signal, no cost cap | 1829 | 19% | −4.5% a trade |
+
+1807 of 1847 signals were too expensive for a $150 cap: a 4-day near-the-money call costs a median
+$170 (HIMS) to $10,500 (SNDK) per contract. Winning stock trades only make +0.7% in the option
+(the targets are close and the spread costs ~5% a round trip); losing ones lose 9.7%.
+
 TTM squeeze filters (`--squeeze`, 10-minute bars; `--daily-squeeze`, daily bars), all entry types:
 
 | Filter | Mar–Aug | Sep–Oct hold-out |

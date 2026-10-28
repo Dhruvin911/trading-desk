@@ -97,8 +97,10 @@ class Trade:
         self.left, self.r, self.done = 1.0, 0.0, 0
         self.opened, self.closed, self.reason = ts, None, None
         self.high = entry
+        self.fills = []                     # (time, price, fraction of the position, reason)
 
     def sell(self, price, frac, ts, reason):
+        self.fills.append((ts.isoformat(), round(price, 4), round(frac, 4), reason))
         self.r += frac * (price - self.entry) / self.risk
         self.left -= frac
         if self.left <= 1e-9:
@@ -111,7 +113,8 @@ class Trade:
                 "entry": round(self.entry, 2), "stop": round(self.entry - self.risk, 2),
                 "targets": " ".join(f"{n}@{p:.2f}" for n, p, _ in self.targets), "levels_hit": self.done,
                 "exit_reason": self.reason, "r": round(self.r, 3),
-                "mfe_r": round((self.high - self.entry) / self.risk, 2)}
+                "mfe_r": round((self.high - self.entry) / self.risk, 2),
+                "opened_at": self.opened.isoformat(), "fills": json.dumps(self.fills)}
 
 
 def in_windows(t, windows):
@@ -172,6 +175,12 @@ def run_symbol(data_dir, sym, cfg, opts):
         or_high = None                      # opening range: the first 10 minutes
         day_candles = []
         key_levels = [lv[f] for f in (0.0, 0.236, 0.382, 0.5, 0.618, 0.786)]
+        if opts.sr_levels:                  # classic support / resistance: previous day high, premarket high
+            pre = [b for _, b, sess in d.m5.get(day, []) if sess == "pre"]
+            key_levels += [prior[-1][2]] + ([max(b.h for b in pre)] if pre else [])
+            key_levels = sorted(set(round(x, 2) for x in key_levels))
+        piv_hi, piv_lo = [], []             # confirmed swing highs / lows on the entry candles: (index, price)
+        pos_hh = False                      # a higher swing high was made while the position is open
         pos, armed, n_today = None, None, 0
         for t, b in fine:
             end = t + step
@@ -242,6 +251,25 @@ def run_symbol(data_dir, sym, cfg, opts):
                 armed = None
             pc, prev_close = prev_close, cb.c
             day_candles.append(cb)
+            i = len(day_candles) - 1
+            new_low = False
+            if i >= 4:                      # 2-candle fractal, confirmed two candles later
+                mid = day_candles[i - 2]
+                around = day_candles[i - 4:i - 2] + day_candles[i - 1:i + 1]
+                if all(mid.h > x.h for x in around):
+                    piv_hi.append((i - 2, mid.h))
+                    if pos and len(piv_hi) >= 2 and piv_hi[-1][1] > piv_hi[-2][1]:
+                        pos_hh = True
+                if all(mid.l < x.l for x in around):
+                    piv_lo.append((i - 2, mid.l))
+                    new_low = True
+            if (opts.structure_exit and pos and new_low and pos_hh and len(piv_lo) >= 2
+                    and piv_lo[-1][1] < piv_lo[-2][1]):
+                pos.sell(cb.c * (1 - slip), pos.left, ct, "structure: lower low after a higher high")
+                trades.append(pos.record())
+                pos, pos_hh = None, False
+            if pos is None:
+                pos_hh = False
             if lt <= dt.time(9, 40):
                 or_high = cb.h if or_high is None else max(or_high, cb.h)
             new_breaks = [L for L in key_levels if pc is not None and pc <= L < cb.c]
@@ -278,6 +306,13 @@ def run_symbol(data_dir, sym, cfg, opts):
                         kind, base = k, min(cb.l, L)
                 elif k == "orb" and bull and or_high and lt > dt.time(9, 40) and pc is not None and pc <= or_high < cb.c and decisive:
                     kind = k
+                elif k == "trendline" and bull and len(piv_hi) >= 2 and pc is not None and decisive:
+                    (i1, h1), (i2, h2) = piv_hi[-2], piv_hi[-1]
+                    if h2 < h1 and i2 - i1 >= 3:                  # falling line through two lower highs
+                        slope = (h2 - h1) / (i2 - i1)
+                        now, before = h2 + slope * (i - i2), h2 + slope * (i - 1 - i2)
+                        if pc <= before and cb.c > now and cb.h - now <= 2 * a_c:
+                            kind = k
                 elif k == "flag" and bull:
                     f = find_flag(day_candles, a_c, Params(), bull=True)
                     if f and f[1] > e[21] - tol:
@@ -347,8 +382,13 @@ def main(argv=None):
     ap.add_argument("--slip", type=float, default=0.0003)
     ap.add_argument("--exit13", choices=["always", "after_t1"], default="always")
     ap.add_argument("--no-ivomy", dest="ivomy", action="store_false")
-    ap.add_argument("--entries", type=lambda v: v.split(","), default=["pullback", "retest", "break", "orb", "flag"],
-                    help="entry types, in priority order: pullback,retest,break,orb,flag")
+    ap.add_argument("--entries", type=lambda v: v.split(","),
+                    default=["pullback", "retest", "break", "trendline", "orb", "flag"],
+                    help="entry types, in priority order: pullback,retest,break,trendline,orb,flag")
+    ap.add_argument("--no-sr", dest="sr_levels", action="store_false",
+                    help="don't add the previous day high and premarket high to the levels for breaks/retests")
+    ap.add_argument("--no-structure-exit", dest="structure_exit", action="store_false",
+                    help="don't exit on a lower swing low after a higher swing high")
     ap.add_argument("--max-per-symbol", type=int, default=2)
     ap.add_argument("--min-target-r", type=float, default=0.0,
                     help="scale-out levels must be at least this many R above the entry")
