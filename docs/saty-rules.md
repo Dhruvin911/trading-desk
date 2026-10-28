@@ -358,3 +358,34 @@ winners overfit in both. The plain 5-minute paper rules hold in all three period
 filter improved check and hold-out but was picked after seeing them, so it is a lead, not proof.
 Across all combinations: relative volume helps most; ATR-level entries beyond the range, the
 range-middle stop and the 13-EMA exit hurt; holding to the close beats every ribbon exit.
+
+## ORB signals as options, contracts by the Enrich Trades pricing guide - `python3 -m bot.orb_options`
+
+Signal: 5m ORB + relative volume + 10m ribbon 8>21 (calls on green ranges, puts on red), out on
+the stock stop or at the close. Guide checklist: spread < 10% of mid, volume and OI > 500, IV
+normal for the stock, earnings accounted for, delta 0.30-0.50, enough time for theta.
+Real chain, 2026-10-27 close, ATM, Nov 6 (data/options/chain_snapshot_2026-10-27.json): cheapest
+contracts HIMS $135 and RKLB $299; SPY $787; most others $900-$6,400. Spread fails: HIMS 11.2%,
+MU 10.3%. Volume and OI pass: TSLA, AAPL, SPY, AMZN, PLTR. IV / 20-day realized vol: 0.9-1.3
+without earnings before expiry, 1.6-2.5 with (MSFT, GOOGL, AAPL, AMZN, PLTR, HOOD, SNDK).
+Model: IV = realized x 1.2 (SPY, QQQ x 1.4), x 1.8 when earnings fall before expiry; half the real
+spread per fill. Real check on six live contracts: real avg +1%, model +5% a trade.
+
+Every signal, one contract, no cost cap (option return on premium; stock signals +0.51R):
+
+| contract | trades | avg return | Mar-Jul | Aug | Sep-Oct |
+|---|---|---|---|---|---|
+| delta 0.2, 7 days | 386 | +1.3% | +0.8% | +4.2% | +1.1% |
+| delta 0.4, 7 days (guide) | 386 | +0.5% | +0.2% | +2.5% | +0.3% |
+| delta 0.7, 7 days | 386 | -0.6% | -0.9% | +0.7% | -0.6% |
+| delta 0.4, 2 days | 401 | +2.6% | +1.1% | +9.2% | +3.3% |
+| delta 0.4, 14 / 28 days | 354 / 297 | -1.2% / -1.8% | | | |
+| trading through earnings | 428 | 0.0% | | | |
+| full checklist tickers only | 130 | +3.4% | +2.7% | +13.4% | -0.4% |
+| spreads twice as wide (first hour) | 386 | -4.2% | | | |
+
+$1,000 cash account, guide defaults, $300 a trade: 25 trades, $1,000 -> $1,550 - but 359 of 426
+signals were skipped because one contract cost more than $300, and PLTR's 4 trades made $624.
+Verdict: the ORB edge per trade (~0.05 ATR) is about what an option's spread and a day of decay
+cost, so the options version is roughly break-even; the guide's filters (tight spreads, no
+earnings, liquid names) are what keep it from losing. Trade this signal in shares.

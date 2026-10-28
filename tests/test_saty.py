@@ -185,6 +185,15 @@ class SatyTests(unittest.TestCase):
         rib[0][1][8] = 99.0                                              # ribbon not stacked: no trade
         self.assertIsNone(simulate(s, p))
 
+    def test_orb_options_pricing(self):
+        from bot.orb_options import UNIVERSE, delta, expiry_after, price
+        self.assertEqual(expiry_after(dt.date(2026, 10, 27), 7), dt.date(2026, 11, 6))      # first Friday 7+ days out
+        t = 7 / 365
+        self.assertAlmostEqual(delta("call", 100, 100, t, 0.5) - delta("put", 100, 100, t, 0.5), 1.0)
+        self.assertAlmostEqual(price("call", 100, 100, t, 0.5) - price("put", 100, 100, t, 0.5), 0.0)  # put-call parity, r = 0
+        self.assertNotIn("HIMS", UNIVERSE["spread"])                                         # real spread 11.2% of the mid
+        self.assertIn("SPY", UNIVERSE["checklist"])
+
 
 if __name__ == "__main__":
     unittest.main()
