@@ -168,6 +168,17 @@ transcripts arrived, from the indicator code alone.
 | Zero costs | 1416 | 53% | +0.03R |
 | Double slippage | 1409 | 31% | −0.20R |
 
+With all of Saty's entry types (pullback, break and hold, retest, opening-range breakout, bull
+flag; `--entries`), the playbook's current default:
+
+| Version | Trades | Win | Avg R |
+|---|---|---|---|
+| All entry types | 1860 | 41% | −0.11R |
+| Sep 14 – Oct 27 (3-minute candles) | 386 | 39% | −0.16R |
+| With the desk's caps | 462 | 47% | −0.05R |
+| Zero costs | 1854 | 50% | +0.03R |
+| By entry type: pullback / retest / break / ORB / flag / iVomy | 846 / 348 / 444 / 53 / 82 / 87 | 40 / 41 / 45 / 32 / 29 / 40% | −0.08 / −0.07 / −0.15 / −0.14 / −0.20 / −0.17R |
+
 Median stop is 0.64% of price, so slippage alone is about 0.09R a trade. Before costs the
 playbook is slightly positive; after them it loses.
 

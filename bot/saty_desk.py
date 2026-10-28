@@ -23,7 +23,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from bot.backtest import ET, RTH_CLOSE, RTH_OPEN, SymbolData, breakdown, fmt_summary, summarize, wilder_atr, write_trades
-from bot.strategy import ATR, EMA, Bar, saty_levels
+from bot.strategy import ATR, EMA, Bar, Params, find_flag, saty_levels
 from bot.timewarp import bars_by_period
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -108,6 +108,10 @@ def run_symbol(data_dir, sym, cfg, opts):
         hod = lod = None
         triggered_10m = False               # a 10m close above the call trigger today
         prev_close = None
+        broken = {}                         # level price -> True once a candle closed through it today
+        or_high = None                      # opening range: the first 10 minutes
+        day_candles = []
+        key_levels = [lv[f] for f in (0.0, 0.236, 0.382, 0.5, 0.618, 0.786)]
         pos, armed, n_today = None, None, 0
         for t, b in fine:
             end = t + step
@@ -177,6 +181,12 @@ def run_symbol(data_dir, sym, cfg, opts):
             if armed and armed["expires"] <= end:
                 armed = None
             pc, prev_close = prev_close, cb.c
+            day_candles.append(cb)
+            if lt <= dt.time(9, 40):
+                or_high = cb.h if or_high is None else max(or_high, cb.h)
+            new_breaks = [L for L in key_levels if pc is not None and pc <= L < cb.c]
+            for L in new_breaks:
+                broken[L] = True
             if pos or armed or n_today >= opts.max_per_symbol or not in_windows(lt, windows):
                 continue
             if cb.c <= trigger or cb.c <= pdc or cb.c >= full:          # trigger box / below PDC / spent
@@ -186,20 +196,42 @@ def run_symbol(data_dir, sym, cfg, opts):
             tol = 0.1 * a_c
             pullback = cb.l <= e[8] + tol and cb.l > e[48] - tol and cb.c > e[13]
             reclaim_gate = pc is not None and pc < gate < cb.c and cb.l > e[48]
-            setup = None
-            if stacked and hod >= gate and used < max_range_a and (pullback or reclaim_gate):
-                setup = "A"
-            elif (triggered_10m and cb.c > max(e[34], e[48]) and used < max_range_b and pullback):
-                setup = "B"
-            elif opts.ivomy and len(hist10) >= 12:
+            ctx_a = stacked and hod >= gate and used < max_range_a
+            ctx_b = triggered_10m and cb.c > max(e[34], e[48]) and used < max_range_b
+            bull = (stacked or ctx_b) and used < max_range_a
+            decisive = cb.h > cb.l and (cb.c - cb.l) / (cb.h - cb.l) >= 0.5
+            ctx = "A" if ctx_a else ("B" if ctx_b else "trend")
+            setup = kind = None
+            entry, base = round(cb.h + 0.01, 2), min(cb.l, e[21])
+            for k in opts.entries:
+                if k == "pullback" and (ctx_a or ctx_b) and (pullback or (ctx_a and reclaim_gate)):
+                    kind = k
+                elif k == "retest" and bull:
+                    L = next((L for L in key_levels if broken.get(L) and L not in new_breaks
+                              and cb.l <= L + tol and cb.c > L), None)
+                    if L is not None:
+                        kind, base = k, min(cb.l, L)
+                elif k == "break" and bull and new_breaks and decisive:
+                    L = max(new_breaks)
+                    nxt = next((x for x in sorted(lv.values()) if x > L), None)
+                    if nxt and cb.h - L <= 0.5 * (nxt - L):          # broke it, not already running away
+                        kind, base = k, min(cb.l, L)
+                elif k == "orb" and bull and or_high and lt > dt.time(9, 40) and pc is not None and pc <= or_high < cb.c and decisive:
+                    kind = k
+                elif k == "flag" and bull:
+                    f = find_flag(day_candles, a_c, Params(), bull=True)
+                    if f and f[1] > e[21] - tol:
+                        kind, entry, base = k, round(f[0] + 0.01, 2), f[1]
+                if kind:
+                    setup = f"{ctx}-{kind}"
+                    break
+            if setup is None and opts.ivomy and len(hist10) >= 12:
                 was_bear = any(r[13] < r[48] and c10 < r[48] for r, c10 in hist10[:-3])
                 tested48 = last10.h >= e[48]
                 if was_bear and tested48 and cb.l <= e[13] + tol and cb.c > e[13] and cb.c > e[8]:
-                    setup = "C"
+                    setup, base = "C-ivomy", cb.l
             if setup is None:
                 continue
-            entry = round(cb.h + 0.01, 2)
-            base = min(cb.l, e[21]) if setup != "C" else cb.l
             stop = round(base - max(0.01, 0.05 * a_c), 2)
             risk = entry - stop
             if risk <= 0 or risk < 0.001 * entry:
@@ -255,6 +287,8 @@ def main(argv=None):
     ap.add_argument("--slip", type=float, default=0.0003)
     ap.add_argument("--exit13", choices=["always", "after_t1"], default="always")
     ap.add_argument("--no-ivomy", dest="ivomy", action="store_false")
+    ap.add_argument("--entries", type=lambda v: v.split(","), default=["pullback", "retest", "break", "orb", "flag"],
+                    help="entry types, in priority order: pullback,retest,break,orb,flag")
     ap.add_argument("--max-per-symbol", type=int, default=2)
     ap.add_argument("--min-target-r", type=float, default=0.0,
                     help="scale-out levels must be at least this many R above the entry")
@@ -269,7 +303,8 @@ def main(argv=None):
     if opts.desk_caps:
         trades = desk_caps(trades, cfg)
     print(fmt_summary(summarize(trades)))
-    for name, key in (("setup", lambda t: t["setup"]), ("symbol", lambda t: t["symbol"]),
+    for name, key in (("setup", lambda t: t["setup"]), ("entry type", lambda t: t["setup"].split("-")[1]),
+                      ("symbol", lambda t: t["symbol"]),
                       ("exit", lambda t: t["exit_reason"]), ("month", lambda t: t["date"][:7])):
         print(f"\nby {name}:")
         for k, s in breakdown(trades, key).items():

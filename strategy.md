@@ -7,7 +7,8 @@ This is Saty Mahajan's day-trading system as he teaches it in his videos (summar
 in `docs/saty-rules.md`). Long only: Robinhood does not let this account sell short, so his
 bearish setups (put trigger breaks, Vomy) mean "stay out" or "exit".
 
-> Backtests of these rules on 17 tickers (Mar–Oct 2026) came out about breakeven after costs.
+> Backtest of this playbook (`python3 -m bot.saty_desk`, 17 tickers, Mar–Oct 2026): 1860 trades,
+> 41% win, −0.11R a trade after 0.03% slippage per fill (+0.03R before costs).
 > Run it in **paper mode** until it has proven itself on new data.
 
 ## Levels: Saty ATR Levels, day mode (scanner, once per day)
@@ -36,20 +37,33 @@ Build 3-minute candles from 1-minute bars from 9:30 ET (9:30, 9:33, ...). Use co
 Compare them with the 10-minute ribbon values.
 
 **Never in the first 10 minutes** (entry windows start 9:40). **Never chase**: if price has run
-away from the ribbon, wait for the pullback. There is always another trade.
+away from the ribbon or the level, wait. There is always another trade.
+
+### Entry types (Saty: "you can get in on a break, a retest, or continuation")
+In the setups below, any of these can be the entry, as long as the setup's conditions hold:
+- **Pullback**: a 3-minute candle dips into the 8–13 zone of the 10-minute ribbon (the 21 is also
+  fine), doesn't break the 48, and closes back above the 13. Buy-stop above that candle's high;
+  stop under its low and under the 21.
+- **Break and hold**: a 3-minute candle closes through a key level (PDC, call trigger, golden gate,
+  mid, golden fib, 78.6%) in the upper half of its range, and its high is no more than halfway to
+  the next level (not running away). Buy-stop above that candle; stop under the level.
+- **Retest**: after a level broke today, a later candle comes back to it and closes above it
+  (resistance turned support). Buy-stop above that candle; stop under the level.
+- **Opening-range breakout**: after 9:40, a 3-minute candle closes above the high of the first 10
+  minutes. Buy-stop above it; stop under its low and under the 21.
+- **Bull flag**: a strong push (a pole of at least 2 candle ATRs), then 2–6 candles drifting
+  sideways or down on lighter volume, holding the 21. Buy-stop above the flag high; stop under the
+  flag low.
 
 ### Setup A: Golden Gate (main setup)
 1. Price has reached the golden gate (+38.2%) today, above PDC, out of the trigger box.
    (Saty's numbers: once 38.2% is hit, ~60% of days reach 61.8%; any level hit leads to the next
    >70% of the time. Our data, 17 tickers: 51–57% and 72–76%.)
 2. 10-minute ribbon bullish (stacked).
-3. Pullback: a 3-minute candle dips into the 8–13 zone of the 10-minute ribbon (the 21 is also
-   fine), does not break the 48, and closes back above the 13. Or a 3-minute close back above the
-   golden gate after a pullback that held the ribbon.
-4. **Entry**: stop_limit buy a cent above that 3-minute candle's high.
-5. **Stop**: under the pullback low, and under the 21 (or 34 / 48 if that's closer to a real
-   level). Never above the call trigger.
-6. **Targets**: the ATR levels above: 50%, 61.8% (golden fib), 78.6%, full ATR.
+3. **Entry**: any entry type above. Saty's favourite here is the pullback into the 8–13 zone, or
+   the close back above the golden gate after a pullback that held the ribbon (break and hold).
+4. **Stop**: as the entry type says. Never above the call trigger.
+5. **Targets**: the ATR levels above: 50%, 61.8% (golden fib), 78.6%, full ATR.
 
 ### Setup B: Trigger break (day-trade checklist)
 Essentials, all required:
@@ -57,7 +71,8 @@ Essentials, all required:
    above the 8/13 too is "extra bullish").
 2. A 10-minute close above the call trigger.
 3. Range used under 70%.
-Ideal: super bullish ribbon. Then wait for the pullback to the 8–13 zone as in A.3–A.5.
+Ideal: super bullish ribbon. Entry: any entry type above (the break of the call trigger itself,
+its retest, or the pullback to the 8–13 zone).
 First target 50% / 61.8%, then the next levels.
 
 ### Setup C: iVomy (reversal back up; lower conviction, confidence one point lower)
