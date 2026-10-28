@@ -281,3 +281,31 @@ All are about breakeven. The level statistics hold, but these mechanical entries
 turn them into an edge on stocks with 5-minute bars.
 
     python3 -m bot.backtest --symbols RKLB,BE,TSLA,MSFT,GOOGL,AAPL,META,SPY,QQQ,MRVL,HOOD,AMD,AMZN,HIMS,MU,SNDK,PLTR --setups SATYD,SATYG --set sd_stacked=true --set sg_exit_after_t1=true --set sg_t2=1.0
+
+## GG reload on SPY 0DTE (Saty's SPX trade, 2026-10-27) - `python3 -m bot.saty_ggreload`
+
+Rules, fixed before testing (from his chart notes): gate unlocks (+38.2%) -> Phase Oscillator
+cools to 23.6 or a 3m close under the 21 EMA ("PO needs to cool") -> no 3m close under PDC since the
+unlock -> first 3m close back above the 21 EMA, between PDC and the gate, 9:40-13:00 -> buy-stop
+above that candle; out on a 3m close under PDC (hard stop 0.05 ATR under it) -> same-day golden-fib
+strike, scale out at trigger / gate / mid, rest at the golden fib; out by 15:40. Puts = mirror.
+Phase Oscillator coded from his Pine source (21 EMA pivot, 3 x ATR(14), 3 EMA, Bollinger compression).
+
+Oct 27 check: entry 9:57 (his note 9:59), out 11:41 at the golden fib. SPY 770c, model vs real 5m
+close: entry 0.15 vs 0.22; exits 0.20/0.38/0.61/0.89 vs 0.21/0.32/0.51/0.74. Model +229%, real about
++100%: the model is generous on this trade.
+
+$1,000 margin account, $100 a trade, Mar 9 - Oct 27, 2026:
+
+| period | setups | option trades | win | P&L |
+|---|---|---|---|---|
+| Mar-Jul (build) | 20 | 17 | 53% | -$55 |
+| Aug (check) | 7 | 5 | 60% | -$24 |
+| Sep-Oct 27 (hold-out) | 7 | 7 | 57% | +$386 |
+| all | 34 | 29 | 55% | +$308, max drawdown -$283 |
+
+Without the best trade +$91; without the best 3 -$220. Variants (all / Mar-Jul): enter on trigger
+reclaim +$258 / +$102; cool at 61.8 same as 23.6; VIX key-level filter -$378 / -$196; ATM strike
++$275 / +$44; cash account +$229; call IV x1.0 +$133 / +$6; 3% spread +$277 / -$71.
+Verdict: about one setup a week; the edge rests on a few golden-fib days (Jun 24, Oct 27), and the
+build period alone is flat-to-negative. Not proven; paper trade it before money.

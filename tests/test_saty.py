@@ -131,6 +131,31 @@ class SatyTests(unittest.TestCase):
         self.assertFalse(on)
         self.assertGreater(mom, 0)
 
+    def test_phase_oscillator(self):
+        from bot.saty_ggreload import PhaseOscillator
+        po = PhaseOscillator()
+        for i in range(60):                                              # steady climb: above the pivot, positive
+            v = po.update(Bar(None, 100 + i, 100.5 + i, 99.5 + i, 100.2 + i, 1000))
+        self.assertGreater(v, 23.6)
+        for i in range(10):                                              # sharp drop back through the 21 EMA
+            po.update(Bar(None, 150 - 3 * i, 150.5 - 3 * i, 147 - 3 * i, 148 - 3 * i, 1000))
+        self.assertLess(po.value, 0)
+        flat = PhaseOscillator()
+        for i in range(60):                                              # tiny range: Bollinger inside 2 ATR, compressed
+            flat.update(Bar(None, 100, 101, 99, 100 + 0.01 * (i % 2), 1000))
+        self.assertTrue(flat.compressed)
+
+    def test_gg_reload_oct27(self):
+        from argparse import Namespace
+        from bot.backtest import SymbolData
+        from bot.saty_desk import ROOT
+        from bot.saty_ggreload import run_side
+        o = Namespace(start=dt.date(2026, 10, 27), end=dt.date(2026, 10, 27), entry="reclaim21", cool=23.6,
+                      stop_atr=0.05, first=dt.time(9, 40), last=dt.time(13, 0), vix_filter=False)
+        (t,) = run_side(SymbolData(str(ROOT / "data"), "SPY"), o, "call")     # Saty's SPX trade that day, on SPY
+        self.assertEqual(t["exit_reason"], "golden fib: GG complete")
+        self.assertGreater(t["r"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
