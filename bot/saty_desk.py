@@ -121,8 +121,23 @@ def in_windows(t, windows):
     return any(a <= t < b for a, b in windows)
 
 
-def run_symbol(data_dir, sym, cfg, opts):
-    d = SymbolData(data_dir, sym)
+def mirrored(d, center=None):
+    """The same symbol reflected around `center` (price -> 2*center - price, highs and lows swapped).
+    Running the long-only rules on it gives the bearish mirror of every setup (put trigger, short
+    golden gate, bearish ribbon, Vomy, bear flags ...); map prices back with the same reflection."""
+    import copy
+    c = center if center is not None else d.daily[-1][4]
+    m = copy.copy(d)
+    flip = lambda b: Bar(b.ts, 2 * c - b.o, 2 * c - b.l, 2 * c - b.h, 2 * c - b.c, b.v)
+    m.m5 = {day: [(t, flip(b), s) for t, b, s in rows] for day, rows in d.m5.items()}
+    m.m1 = {day: [(t, flip(b), s) for t, b, s in rows] for day, rows in d.m1.items()}
+    m.daily = [(day, 2 * c - o, 2 * c - l, 2 * c - h, 2 * c - cl) for day, o, h, l, cl in d.daily]
+    m.center = c
+    return m
+
+
+def run_symbol(data_dir, sym, cfg, opts, data=None):
+    d = data or SymbolData(data_dir, sym)
     rib = ribbon_series(d)
     windows = [(dt.time.fromisoformat(w["start"]), dt.time.fromisoformat(w["end"])) for w in cfg["entry_windows"]]
     flatten = dt.time.fromisoformat(cfg["flatten_at"])

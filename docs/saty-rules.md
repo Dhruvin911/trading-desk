@@ -195,6 +195,34 @@ modeled.
 $170 (HIMS) to $10,500 (SNDK) per contract. Winning stock trades only make +0.7% in the option
 (the targets are close and the spread costs ~5% a round trip); losing ones lose 9.7%.
 
+### SPY same-day (0DTE) options, as in Saty's daily plans: `python3 -m bot.saty_0dte`
+The playbook on SPY in both directions (the bearish side runs the same rules on SPY reflected
+around a price: put trigger, short golden gate, Vomy, bear flags). Strike ~1 ATR level out of the
+money (his posted strikes, e.g. SPY 770c / 764p with SPY ~767), VIX key level as a filter, no
+trading on monthly OPEX, out by 15:40 (Robinhood closes 0DTE at 15:45), $100 premium a trade,
+$1,000 account. Prices: Black-Scholes with IV = VIX × 0.8 (calls) / × 1.0 (puts), fitted to SPY's
+real 770c and 764p on 2026-10-27 (`data/options/SPY_0dte_2026-10-27.json`); half-spread
+max($0.01, 1%).
+
+| Version, Mar 9 – Oct 27 | Trades | Win | $1,000 → |
+|---|---|---|---|
+| Margin account (3 day trades / 5 days) | 69 | 33% | $1,356 (max drawdown −$396) |
+| Cash account (no PDT, next-day settlement) | 101 | 34% | $1,693 |
+| $50 a trade | 63 | 32% | $1,456 |
+| No VIX filter | 88 | 30% | $1,603 |
+| At-the-money strikes | 70 | 29% | $1,401 |
+| Pricier options (IV × 1.0 calls / × 1.2 puts) | 67 | 31% | $1,206 |
+| Cheaper options (× 0.7 / × 0.9) | 69 | 32% | $1,175 |
+| 3% half-spread | 69 | 33% | $1,209 |
+| Mar–Aug only / Sep–Oct only | 53 / 16 | 34% / 31% | +$202 / +$121 |
+| Calls only / puts only | 56 / 27 | 36% / 26% | +$292 / +$251 |
+
+Positive in every variant, but: the profit comes from a few big winners (without the best 3 trades
+the margin account is −$104; the median trade is −$7), and it isn't statistically clear of luck
+(t = 0.8–1.1; bootstrap: 13–23% chance the true total is ≤ 0). The price model is fitted to one
+day: on 2026-10-27 it was close in the morning but overpriced calls by 30–40% after midday, and
+my VIX key level (17.5) differed from Saty's posted one (18). Paper trade it before any money.
+
 TTM squeeze filters (`--squeeze`, 10-minute bars; `--daily-squeeze`, daily bars), all entry types:
 
 | Filter | Mar–Aug | Sep–Oct hold-out |
